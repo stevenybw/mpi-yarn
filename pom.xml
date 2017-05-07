@@ -1,23 +1,23 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.hortonworks</groupId>
-  <artifactId>simple-yarn-app</artifactId>
-  <version>1.1.0</version>
-  <name>simple-yarn-app</name>
+  <groupId>ai.fma</groupId>
+  <artifactId>mpi-yarn</artifactId>
+  <version>1.0.0</version>
+  <name>mpi-yarn</name>
 
-  <url>https://github.com/hortonworks/simple-yarn-app</url>
+  <url>https://github.com/fma-cloud/mpi-yarn</url>
  
   <dependencies>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-yarn-client</artifactId>
-      <version>2.2.0</version>
+      <version>2.6.5</version>
     </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-common</artifactId>
-      <version>2.2.0</version>
+      <version>2.6.5</version>
     </dependency>
   </dependencies>
 </project>

@@ -1,4 +1,4 @@
-package com.hortonworks.simpleyarnapp;
+package ai.fma.mpi_yarn;
 
 import java.util.Collections;
 import java.util.List;
