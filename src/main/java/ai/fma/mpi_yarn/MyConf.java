@@ -172,7 +172,18 @@ public class MyConf implements Serializable {
 		
 		// process
 		executablePath = cmd.getOptionValue("a");
-		executableArgs = cmd.getOptionValue("args");
+		executableFile = new File(executablePath);
+		if(! executableFile.exists()) {
+			System.out.println("Executable " + executablePath + " does not exist.");
+			formatter.printHelp("mpi-run", options);
+			System.exit(1);
+		}
+		executableName = executableFile.getName();
+		if(cmd.getOptionValue("args") != null) { 
+			executableArgs = cmd.getOptionValue("args");
+		} else {
+			executableArgs = "";
+		}
 		hdfsPrefix = cmd.getOptionValue("p");
 		if(cmd.getOptionValue("n") != null) {
 			numProcs = Integer.valueOf(cmd.getOptionValue("n"));
@@ -207,14 +218,6 @@ public class MyConf implements Serializable {
 			for(String path : cmd.getOptionValue("sharedlist").split(",")) {
 				sharedObjectPathList.add(path);
 			}
-		}
-		
-		executableFile = new File(executablePath);
-		executableName = executableFile.getName();
-		if(! executableFile.exists()) {
-			System.out.println("Executable " + executablePath + " does not exist.");
-			formatter.printHelp("mpi-run", options);
-			System.exit(1);
 		}
 		
 		containingJar = cmd.getOptionValue("jar");

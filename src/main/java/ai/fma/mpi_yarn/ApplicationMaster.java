@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Scanner;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.yarn.api.ApplicationConstants;
@@ -139,15 +140,24 @@ public class ApplicationMaster {
 				hostSb.append(hostContainers.get(host).size());
 			}
 		}
+		
+		System.out.println("append output into " + myConf.getOutputPath());
+		Path outputPath = new Path(myConf.getOutputPath());
+		FSDataOutputStream outputStream = dfs.create(outputPath);
+		
 		InputStream mpirunIstream;
+		InputStream mpirunEstream;
 		Scanner mpirunScanner;
+		Scanner mpirunEscanner;
 		{
 			String cmd = MessageFormat.format("mpirun -launcher manual -hosts {0} {1} {2}", hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
 			System.out.println("invoke " + cmd);
 			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
 			Process p = pb.start();
 			mpirunIstream = p.getInputStream();
+			mpirunEstream = p.getErrorStream();
 			mpirunScanner = new Scanner(mpirunIstream);
+			mpirunEscanner = new Scanner(mpirunEstream);
 			for(String host : hostContainers.keySet()) {
 				ArrayList<Container> current_containers = hostContainers.get(host);
 				{
@@ -191,12 +201,28 @@ public class ApplicationMaster {
 			if(mpirunIstream.available() > 0) {
 				String nextLine = mpirunScanner.nextLine();
 				System.out.println(nextLine);
+				outputStream.writeBytes(nextLine + "\n");
+				outputStream.hsync();
+			}
+			if(mpirunEstream.available() > 0) { 
+				String nextLine = mpirunEscanner.nextLine();
+				System.out.println("[stderr] " + nextLine);
+				outputStream.writeBytes("[stderr] " + nextLine + "\n");
+				outputStream.hsync();
 			}
 			Thread.sleep(100);
 		}
 		while(mpirunScanner.hasNext()) {
 			String nextLine = mpirunScanner.nextLine();
 			System.out.println(nextLine);
+			outputStream.writeBytes(nextLine + "\n");
+			outputStream.hsync();
+		}
+		while(mpirunEscanner.hasNext()) {
+			String nextLine = mpirunEscanner.nextLine();
+			System.out.println("[stderr] " + nextLine);
+			outputStream.writeBytes("[stderr] " + nextLine + "\n");
+			outputStream.hsync();
 		}
 
 		// Un-register with ResourceManager

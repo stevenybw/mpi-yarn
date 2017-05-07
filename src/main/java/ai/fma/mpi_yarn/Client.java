@@ -2,12 +2,15 @@ package ai.fma.mpi_yarn;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Scanner;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -131,16 +134,42 @@ public class Client {
 
 		// Submit application
 		ApplicationId appId = appContext.getApplicationId();
-		System.out.println("Submitting application " + appId + " to queue " + myConf.getQueueName());
+		System.out.println("submitting application " + appId + " to queue " + myConf.getQueueName());
+		System.out.println("output location = " + myConf.getOutputPath());
+		Path outputPath = new Path(myConf.getOutputPath());
 		yarnClient.submitApplication(appContext);
 
 		ApplicationReport appReport = yarnClient.getApplicationReport(appId);
 		YarnApplicationState appState = appReport.getYarnApplicationState();
+		long outputOffset = 0;
+		int bufferSize = 1024*1024;
+		byte[] buffer = new byte[bufferSize];
 		while (appState != YarnApplicationState.FINISHED && appState != YarnApplicationState.KILLED
 				&& appState != YarnApplicationState.FAILED) {
 			Thread.sleep(100);
 			appReport = yarnClient.getApplicationReport(appId);
 			appState = appReport.getYarnApplicationState();
+			if(dfs.exists(outputPath)) {
+				FileStatus fileStatus = dfs.getFileStatus(outputPath);
+				if(fileStatus.getLen() > outputOffset) {
+					FSDataInputStream inputStream = dfs.open(outputPath);
+					int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
+					String nextChunk = new String(buffer, StandardCharsets.UTF_8);
+					System.out.print(nextChunk);
+					outputOffset += readBytes;
+				}
+			}
+		}
+		
+		if(dfs.exists(outputPath)) {
+			FileStatus fileStatus = dfs.getFileStatus(outputPath);
+			while(fileStatus.getLen() > outputOffset) {
+				FSDataInputStream inputStream = dfs.open(outputPath);
+				int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
+				String nextChunk = new String(buffer, StandardCharsets.UTF_8);
+				System.out.print(nextChunk);
+				outputOffset += readBytes;
+			}
 		}
 
 		System.out.println(
