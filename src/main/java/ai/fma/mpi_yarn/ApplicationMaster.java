@@ -43,6 +43,10 @@ public class ApplicationMaster {
 		MyConf myConf = MyConf.deserialize(System.getenv(MyConf.EnvName));
 		Path hdfsPrefix = new Path(myConf.getHdfsPrefix());
 		int responseId = 0;
+		
+		System.out.println("append output into " + myConf.getOutputPath());
+		Path outputPath = new Path(myConf.getOutputPath());
+		FSDataOutputStream outputStream = dfs.create(outputPath);
 
 		AMRMClient<ContainerRequest> rmClient = AMRMClient.createAMRMClient();
 		rmClient.init(conf);
@@ -63,7 +67,7 @@ public class ApplicationMaster {
 
 		ArrayList<Container> containers = new ArrayList<Container>();
 		HashMap<String, ArrayList<Container>> hostContainers = new HashMap<String, ArrayList<Container>>();
-
+		
 		if (myConf.getLocalityType() == LocalityType.NONE) {
 			int n = myConf.getNumProcs();
 			System.out.println("request " + String.valueOf(n) + " container; container memory = "
@@ -95,6 +99,72 @@ public class ApplicationMaster {
 				}
 				Thread.sleep(100);
 			}
+		} else if (myConf.getLocalityType() == LocalityType.GROUP) {
+			int N = myConf.getNumNodes();
+			int ppn = myConf.getNumProcsPerNode();
+			System.out.println("request " + N + " groups; each group has " + ppn + " containers; container memory = "
+					+ String.valueOf(myConf.getContainerMemoryMb()));
+			// Resource requirement is the same as above
+			Resource capability = Records.newRecord(Resource.class);
+			capability.setMemory(myConf.getContainerMemoryMb());
+			capability.setVirtualCores(1);
+			
+			// acquired group is a group which has more than ppn nodes
+			int numAcquiredGroup = 0;
+
+			// request one container at a time, until we have enough groups
+			while (numAcquiredGroup < N) {
+				ContainerRequest containerAsk = new ContainerRequest(capability, null, null, priority);
+				rmClient.addContainerRequest(containerAsk);
+				
+				// wait for one container
+				while(true) {
+					AllocateResponse response = rmClient.allocate(responseId++);
+					if(response.getAllocatedContainers().size() > 0) {
+						Container container = response.getAllocatedContainers().get(0);
+						NodeId nodeId = container.getNodeId();
+						String host = nodeId.getHost();
+						System.out.println("Acquired container " + container.getId() + " at host " + host);
+						if (!hostContainers.containsKey(host)) {
+							hostContainers.put(host, new ArrayList<Container>());
+						}
+						hostContainers.get(host).add(container);
+						if(hostContainers.get(host).size() == ppn) {
+							numAcquiredGroup++;
+						}
+						break;
+					}
+				}
+			}
+			
+			{
+				ArrayList<Container> redundantContainers = new ArrayList<Container>();
+
+				// find the redundant containers & update containers
+				for(String host : hostContainers.keySet()) {
+					ArrayList<Container> Cs = hostContainers.get(host);
+					if (Cs.size() < ppn) {
+						redundantContainers.addAll(Cs);
+						hostContainers.remove(host);
+					} else {
+						for(int i=0; i<(Cs.size() - ppn); i++) {
+							redundantContainers.add(Cs.remove(0));
+						}
+						containers.addAll(Cs);
+					}
+				}
+				
+				// release the redundant containers
+				for(Container container : redundantContainers) {
+					System.out.println("Releasing redundant container " + container.getId());
+					rmClient.releaseAssignedContainer(container.getId());
+				}
+			}
+		}
+		
+		System.out.println("resource complete: ");
+		for(String host : hostContainers.keySet()) {
+			System.out.println("   " + host + ":" + hostContainers.get(host).size());
 		}
 
 		Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
@@ -151,10 +221,6 @@ public class ApplicationMaster {
 				}
 			}
 		}
-
-		System.out.println("append output into " + myConf.getOutputPath());
-		Path outputPath = new Path(myConf.getOutputPath());
-		FSDataOutputStream outputStream = dfs.create(outputPath);
 
 		InputStream mpirunIstream;
 		InputStream mpirunEstream;
