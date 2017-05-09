@@ -83,6 +83,22 @@ public class Client {
 			log("copy executable file " + myConf.getExecutablePath() + " into " + executablePath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, new Path(myConf.getExecutablePath()), executablePath);
 		}
+		
+		{
+			Path proxyPath = Path.mergePaths(hdfsPrefix, new Path(MyConf.PMI_PROXY));
+			log("copy hydra proxy " + myConf.getHydraProxy() + " into " + proxyPath.toUri().toString());
+			dfs.copyFromLocalFile(false, true, new Path(myConf.getHydraProxy()), proxyPath);
+		}
+		
+		{
+			// mpiexec should be a resource for AM
+			Path mpiexecPath = Path.mergePaths(hdfsPrefix, new Path(MyConf.MPIEXEC));
+			log("copy mpiexec " + myConf.getHydraMpiexec() + " into " + mpiexecPath.toUri().toString());
+			dfs.copyFromLocalFile(false, true, new Path(myConf.getHydraMpiexec()), mpiexecPath);
+			LocalResource mpiexecResource = Records.newRecord(LocalResource.class);
+			MyConf.setupLocalResource(dfs, mpiexecPath, mpiexecResource);
+			localResources.put(MyConf.MPIEXEC, mpiexecResource);
+		}
 
 		Path soPrefix = Path.mergePaths(hdfsPrefix, new Path("sofiles/"));
 		dfs.mkdirs(soPrefix);

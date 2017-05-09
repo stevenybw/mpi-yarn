@@ -21,6 +21,7 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.SerializationUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -30,7 +31,21 @@ import org.apache.hadoop.yarn.api.records.LocalResourceVisibility;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 
 public class MyConf implements Serializable {
+	public static String MPIEXEC = "mpiexec.hydra";
+	public static String PMI_PROXY = "hydra_pmi_proxy";
 	
+	public String getHydraPrefix() {
+		return hydraPrefix;
+	}
+	
+	public String getHydraMpiexec() {
+		return hydraPrefix + "/" + MPIEXEC;
+	}
+	
+	public String getHydraProxy() {
+		return hydraPrefix + "/" + PMI_PROXY;
+	}
+
 	public static String serialize(MyConf conf) {
 		byte[] data = SerializationUtils.serialize(conf);
 		return Base64.encodeBase64String(data);
@@ -122,6 +137,10 @@ public class MyConf implements Serializable {
 		optionHdfsPrefix.setRequired(true);
 		options.addOption(optionHdfsPrefix);
 		
+		Option optionHydraHome = new Option("hydra", "", true, "the prefix of hydra process manager");
+		optionHydraHome.setRequired(true);
+		options.addOption(optionHydraHome);
+		
 		Option optionNumProcs = new Option("n", "", true, "num processes");
 		optionNumProcs.setRequired(false);
 		options.addOption(optionNumProcs);
@@ -185,6 +204,26 @@ public class MyConf implements Serializable {
 			executableArgs = "";
 		}
 		hdfsPrefix = cmd.getOptionValue("p");
+		hydraPrefix = cmd.getOptionValue("hydra");
+		
+		{
+			File file = new File(getHydraMpiexec());
+			if (!file.exists()) {
+				System.out.println("Hydra mpiexec " + getHydraMpiexec() + " does not exist.");
+				formatter.printHelp("mpi-run", options);
+				System.exit(1);
+			}
+		}
+		
+		{
+			File file = new File(getHydraProxy());
+			if (!file.exists()) {
+				System.out.println("Hydra pmi_proxy " + getHydraMpiexec() + " does not exist.");
+				formatter.printHelp("mpi-run", options);
+				System.exit(1);
+			}
+		}
+		
 		if(cmd.getOptionValue("n") != null) {
 			numProcs = Integer.valueOf(cmd.getOptionValue("n"));
 		} else {
@@ -255,6 +294,7 @@ public class MyConf implements Serializable {
 
 	private Date now;
 	private String hdfsPrefix;
+	private String hydraPrefix;
 	private HashSet<String> envList;
 	private String executablePath;
 	private String executableArgs;
@@ -281,7 +321,9 @@ public class MyConf implements Serializable {
 	}
 	
 	public static void main(String[] args) throws Exception {
-		System.out.println(MessageFormat.format("String is {0}, Int is {1}", "AAA", 123));
+		String[] a = "AAA BBB CCC".split(" ");
+		System.out.println(String.join(" ", a));
+		System.out.println(StringUtils.join(a, " "));
 		
 		System.out.println("Hello");
 		//String[] test1 = {"-x", "16"};

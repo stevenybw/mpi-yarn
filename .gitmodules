@@ -1,0 +1,3 @@
+[submodule "hydra_pm"]
+	path = hydra_pm
+	url = https://github.com/stevenybw/hydra_pm

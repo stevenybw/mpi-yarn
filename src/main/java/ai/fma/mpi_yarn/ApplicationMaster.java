@@ -3,12 +3,14 @@ package ai.fma.mpi_yarn;
 import java.io.InputStream;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Scanner;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -33,7 +35,7 @@ public class ApplicationMaster {
 
 	public static void main(String[] args) throws Exception {
 		System.out.println("AM Start");
-		
+
 		// Initialize clients to ResourceManager and NodeManagers
 		Configuration conf = new YarnConfiguration();
 
@@ -86,7 +88,7 @@ public class ApplicationMaster {
 					String host = nodeId.getHost();
 					System.out.println("Acquired container " + container.getId() + " at host " + host);
 					containers.add(container);
-					if(!hostContainers.containsKey(host)) {
+					if (!hostContainers.containsKey(host)) {
 						hostContainers.put(host, new ArrayList<Container>());
 					}
 					hostContainers.get(host).add(container);
@@ -94,13 +96,19 @@ public class ApplicationMaster {
 				Thread.sleep(100);
 			}
 		}
-		
+
 		Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
 		{
 			Path executablePath = Path.mergePaths(hdfsPrefix, new Path(myConf.getExecutableName()));
 			LocalResource executableResource = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, executablePath, executableResource);
 			localResources.put(executablePath.getName(), executableResource);
+		}
+		{
+			Path pmiProxyPath = Path.mergePaths(hdfsPrefix, new Path(MyConf.PMI_PROXY));
+			LocalResource pmiProxyResource = Records.newRecord(LocalResource.class);
+			MyConf.setupLocalResource(dfs, pmiProxyPath, pmiProxyResource);
+			localResources.put(pmiProxyPath.getName(), pmiProxyResource);
 		}
 		for (String sofile : myConf.getSharedObjectPathList()) {
 			Path src = new Path(sofile);
@@ -111,13 +119,13 @@ public class ApplicationMaster {
 		}
 		HashSet<String> envList = myConf.getEnvList();
 		Map<String, String> containerEnv = new HashMap<String, String>();
-		for(String envName : System.getenv().keySet()) {
-			if(envList.contains(envName)) {
+		for (String envName : System.getenv().keySet()) {
+			if (envList.contains(envName)) {
 				containerEnv.put(envName, System.getenv(envName));
 			}
 		}
 		String ldLibraryPath = containerEnv.get("LD_LIBRARY_PATH");
-		if(ldLibraryPath == null) {
+		if (ldLibraryPath == null) {
 			ldLibraryPath = "./sofiles";
 		} else {
 			ldLibraryPath = "./sofiles:" + ldLibraryPath;
@@ -126,31 +134,35 @@ public class ApplicationMaster {
 		System.out.println("=== Environment ===");
 		System.out.println(containerEnv);
 		System.out.println("===================");
-		
+
+		ArrayList<Container> containerSequence = new ArrayList<Container>();
 		StringBuilder hostSb = new StringBuilder();
 		{
 			boolean first = true;
-			for(String host : hostContainers.keySet()) {
-				if(first) {
-					first = false;
-				} else {
-					hostSb.append(",");
+			for (String host : hostContainers.keySet()) {
+				for (Container container : hostContainers.get(host)) {
+					if (first) {
+						first = false;
+					} else {
+						hostSb.append(",");
+					}
+					hostSb.append(host);
+					containerSequence.add(container);
 				}
-				hostSb.append(host + ":");
-				hostSb.append(hostContainers.get(host).size());
 			}
 		}
-		
+
 		System.out.println("append output into " + myConf.getOutputPath());
 		Path outputPath = new Path(myConf.getOutputPath());
 		FSDataOutputStream outputStream = dfs.create(outputPath);
-		
+
 		InputStream mpirunIstream;
 		InputStream mpirunEstream;
 		Scanner mpirunScanner;
 		Scanner mpirunEscanner;
 		{
-			String cmd = MessageFormat.format("mpirun -launcher manual -hosts {0} {1} {2}", hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+			String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} {2} {3}", MyConf.MPIEXEC, hostSb.toString(),
+					myConf.getExecutableName(), myConf.getExecutableArgs());
 			System.out.println("invoke " + cmd);
 			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
 			Process p = pb.start();
@@ -158,32 +170,26 @@ public class ApplicationMaster {
 			mpirunEstream = p.getErrorStream();
 			mpirunScanner = new Scanner(mpirunIstream);
 			mpirunEscanner = new Scanner(mpirunEstream);
-			for(String host : hostContainers.keySet()) {
-				ArrayList<Container> current_containers = hostContainers.get(host);
-				{
-					String line = mpirunScanner.nextLine();
-					//HYDRA_LAUNCH: /Users/ybw/local/mpich-3.2/bin/hydra_pmi_proxy --control-port 172.23.100.68:58247 --rmk user --launcher manual --demux poll --pgid 0 --retries 10 --usize -2 --proxy-id 0
-					String container_cmd = line.substring("HYDRA_LAUNCH: ".length());
-					Container container = current_containers.get(0);
-					ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
-					ctx.setLocalResources(localResources);
-					ctx.setCommands(Collections.singletonList(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR
-							+ "/stdout" + " 2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr"));
-					nmClient.startContainer(container, ctx);
-					System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
-				}
-				for(Container container : current_containers.subList(1, current_containers.size())) {
-					String container_cmd = "/bin/echo";
-					ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
-					ctx.setCommands(Collections.singletonList(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR
-							+ "/stdout" + " 2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr"));
-					nmClient.startContainer(container, ctx);
-					System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
-				}
+			for (Container container : containerSequence) {
+				String line = mpirunScanner.nextLine();
+				// HYDRA_LAUNCH: /Users/ybw/local/mpich-3.2/bin/hydra_pmi_proxy
+				// --control-port 172.23.100.68:58247 --rmk user --launcher
+				// manual --demux poll --pgid 0 --retries 10 --usize -2
+				// --proxy-id 0
+				String[] sp = line.split(" ");
+				String[] sub_sp = Arrays.copyOfRange(sp, 2, sp.length);
+				String container_cmd = "./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
+				ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
+				ctx.setLocalResources(localResources);
+				ctx.setCommands(
+						Collections.singletonList(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR
+								+ "/stdout" + " 2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr"));
+				nmClient.startContainer(container, ctx);
+				System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
 			}
 			{
 				String nextLine = mpirunScanner.nextLine();
-				if(!nextLine.startsWith("HYDRA_LAUNCH_END")) {
+				if (!nextLine.startsWith("HYDRA_LAUNCH_END")) {
 					throw new RuntimeException("Not Start With HYDRA_LAUNCH_END, but " + nextLine);
 				}
 			}
@@ -198,13 +204,13 @@ public class ApplicationMaster {
 				System.out.println(
 						"Completed container " + status.getContainerId() + " with exit code " + status.getExitStatus());
 			}
-			if(mpirunIstream.available() > 0) {
+			if (mpirunIstream.available() > 0) {
 				String nextLine = mpirunScanner.nextLine();
 				System.out.println(nextLine);
 				outputStream.writeBytes(nextLine + "\n");
 				outputStream.hsync();
 			}
-			if(mpirunEstream.available() > 0) { 
+			if (mpirunEstream.available() > 0) {
 				String nextLine = mpirunEscanner.nextLine();
 				System.out.println("[stderr] " + nextLine);
 				outputStream.writeBytes("[stderr] " + nextLine + "\n");
@@ -212,13 +218,13 @@ public class ApplicationMaster {
 			}
 			Thread.sleep(100);
 		}
-		while(mpirunScanner.hasNext()) {
+		while (mpirunScanner.hasNext()) {
 			String nextLine = mpirunScanner.nextLine();
 			System.out.println(nextLine);
 			outputStream.writeBytes(nextLine + "\n");
 			outputStream.hsync();
 		}
-		while(mpirunEscanner.hasNext()) {
+		while (mpirunEscanner.hasNext()) {
 			String nextLine = mpirunEscanner.nextLine();
 			System.out.println("[stderr] " + nextLine);
 			outputStream.writeBytes("[stderr] " + nextLine + "\n");
