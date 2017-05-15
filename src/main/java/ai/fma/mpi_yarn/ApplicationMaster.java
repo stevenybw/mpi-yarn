@@ -41,9 +41,9 @@ public class ApplicationMaster {
 
 		FileSystem dfs = FileSystem.get(conf);
 		MyConf myConf = MyConf.deserialize(System.getenv(MyConf.EnvName));
-		Path hdfsPrefix = new Path(myConf.getHdfsPrefix());
+		String hdfsPrefix = myConf.getHdfsPrefix();
 		int responseId = 0;
-		
+
 		System.out.println("append output into " + myConf.getOutputPath());
 		Path outputPath = new Path(myConf.getOutputPath());
 		FSDataOutputStream outputStream = dfs.create(outputPath);
@@ -67,7 +67,7 @@ public class ApplicationMaster {
 
 		ArrayList<Container> containers = new ArrayList<Container>();
 		HashMap<String, ArrayList<Container>> hostContainers = new HashMap<String, ArrayList<Container>>();
-		
+
 		if (myConf.getLocalityType() == LocalityType.NONE) {
 			int n = myConf.getNumProcs();
 			System.out.println("request " + String.valueOf(n) + " container; container memory = "
@@ -108,7 +108,7 @@ public class ApplicationMaster {
 			Resource capability = Records.newRecord(Resource.class);
 			capability.setMemory(myConf.getContainerMemoryMb());
 			capability.setVirtualCores(1);
-			
+
 			// acquired group is a group which has more than ppn nodes
 			int numAcquiredGroup = 0;
 
@@ -116,11 +116,11 @@ public class ApplicationMaster {
 			while (numAcquiredGroup < N) {
 				ContainerRequest containerAsk = new ContainerRequest(capability, null, null, priority);
 				rmClient.addContainerRequest(containerAsk);
-				
+
 				// wait for one container
-				while(true) {
+				while (true) {
 					AllocateResponse response = rmClient.allocate(responseId++);
-					if(response.getAllocatedContainers().size() > 0) {
+					if (response.getAllocatedContainers().size() > 0) {
 						Container container = response.getAllocatedContainers().get(0);
 						NodeId nodeId = container.getNodeId();
 						String host = nodeId.getHost();
@@ -129,60 +129,60 @@ public class ApplicationMaster {
 							hostContainers.put(host, new ArrayList<Container>());
 						}
 						hostContainers.get(host).add(container);
-						if(hostContainers.get(host).size() == ppn) {
+						if (hostContainers.get(host).size() == ppn) {
 							numAcquiredGroup++;
 						}
 						break;
 					}
 				}
 			}
-			
+
 			{
 				ArrayList<Container> redundantContainers = new ArrayList<Container>();
 
 				// find the redundant containers & update containers
-				for(String host : hostContainers.keySet()) {
+				for (String host : hostContainers.keySet()) {
 					ArrayList<Container> Cs = hostContainers.get(host);
 					if (Cs.size() < ppn) {
 						redundantContainers.addAll(Cs);
 						hostContainers.remove(host);
 					} else {
-						for(int i=0; i<(Cs.size() - ppn); i++) {
+						for (int i = 0; i < (Cs.size() - ppn); i++) {
 							redundantContainers.add(Cs.remove(0));
 						}
 						containers.addAll(Cs);
 					}
 				}
-				
+
 				// release the redundant containers
-				for(Container container : redundantContainers) {
+				for (Container container : redundantContainers) {
 					System.out.println("Releasing redundant container " + container.getId());
 					rmClient.releaseAssignedContainer(container.getId());
 				}
 			}
 		}
-		
+
 		System.out.println("resource complete: ");
-		for(String host : hostContainers.keySet()) {
+		for (String host : hostContainers.keySet()) {
 			System.out.println("   " + host + ":" + hostContainers.get(host).size());
 		}
 
 		Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
 		{
-			Path executablePath = Path.mergePaths(hdfsPrefix, new Path(myConf.getExecutableName()));
+			Path executablePath = new Path(hdfsPrefix + "/" + myConf.getExecutableName());
 			LocalResource executableResource = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, executablePath, executableResource);
 			localResources.put(executablePath.getName(), executableResource);
 		}
 		{
-			Path pmiProxyPath = Path.mergePaths(hdfsPrefix, new Path(MyConf.PMI_PROXY));
+			Path pmiProxyPath = new Path(hdfsPrefix + "/" + MyConf.PMI_PROXY);
 			LocalResource pmiProxyResource = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, pmiProxyPath, pmiProxyResource);
 			localResources.put(pmiProxyPath.getName(), pmiProxyResource);
 		}
 		for (String sofile : myConf.getSharedObjectPathList()) {
 			Path src = new Path(sofile);
-			Path target = Path.mergePaths(hdfsPrefix, new Path("sofiles/" + src.getName()));
+			Path target = new Path(hdfsPrefix + "/sofiles/" + src.getName());
 			LocalResource soResource = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, target, soResource);
 			localResources.put(target.getName(), soResource);
@@ -227,8 +227,9 @@ public class ApplicationMaster {
 		Scanner mpirunScanner;
 		Scanner mpirunEscanner;
 		{
-			String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} {2} {3}", MyConf.MPIEXEC, hostSb.toString(),
-					myConf.getExecutableName(), myConf.getExecutableArgs());
+			String cmd = MessageFormat.format(
+					"./{0} -launcher manual -ppn 1 -hosts {1} -wdir /tmp /tmp/MPIYARN_{2} {3}", MyConf.MPIEXEC,
+					hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
 			System.out.println("invoke " + cmd);
 			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
 			Process p = pb.start();
@@ -247,9 +248,13 @@ public class ApplicationMaster {
 				String container_cmd = "./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
 				ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
 				ctx.setLocalResources(localResources);
-				ctx.setCommands(
-						Collections.singletonList(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR
-								+ "/stdout" + " 2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr"));
+				ArrayList<String> commands = new ArrayList<String>();
+				commands.add(MessageFormat.format("ln -sf $PWD/{0} /tmp/MPIYARN_{0} &&", myConf.getExecutableName())
+						+ container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
+						+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
+				// commands.add("echo ContainerFinished!");
+				ctx.setCommands(commands);
+
 				nmClient.startContainer(container, ctx);
 				System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
 			}
@@ -262,6 +267,7 @@ public class ApplicationMaster {
 		}
 
 		// Wait for containers
+		boolean errorLaunchingContainer = false;
 		int completedContainers = 0;
 		while (completedContainers < containers.size()) {
 			AllocateResponse response = rmClient.allocate(responseId++);
@@ -269,6 +275,9 @@ public class ApplicationMaster {
 				++completedContainers;
 				System.out.println(
 						"Completed container " + status.getContainerId() + " with exit code " + status.getExitStatus());
+				if (status.getExitStatus() != 0) {
+					errorLaunchingContainer = true;
+				}
 			}
 			if (mpirunIstream.available() > 0) {
 				String nextLine = mpirunScanner.nextLine();
@@ -284,20 +293,23 @@ public class ApplicationMaster {
 			}
 			Thread.sleep(100);
 		}
-		while (mpirunScanner.hasNext()) {
-			String nextLine = mpirunScanner.nextLine();
-			System.out.println(nextLine);
-			outputStream.writeBytes(nextLine + "\n");
-			outputStream.hsync();
+		if (!errorLaunchingContainer) {
+			while (mpirunScanner.hasNext()) {
+				String nextLine = mpirunScanner.nextLine();
+				System.out.println(nextLine);
+				outputStream.writeBytes(nextLine + "\n");
+				outputStream.hsync();
+			}
+			while (mpirunEscanner.hasNext()) {
+				String nextLine = mpirunEscanner.nextLine();
+				System.out.println("[stderr] " + nextLine);
+				outputStream.writeBytes("[stderr] " + nextLine + "\n");
+				outputStream.hsync();
+			}
+			// Un-register with ResourceManager
+			rmClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "", "");
+		} else {
+			rmClient.unregisterApplicationMaster(FinalApplicationStatus.FAILED, "failed due to one of the container launch returns non-zero", "");
 		}
-		while (mpirunEscanner.hasNext()) {
-			String nextLine = mpirunEscanner.nextLine();
-			System.out.println("[stderr] " + nextLine);
-			outputStream.writeBytes("[stderr] " + nextLine + "\n");
-			outputStream.hsync();
-		}
-
-		// Un-register with ResourceManager
-		rmClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "", "");
 	}
 }

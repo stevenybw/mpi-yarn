@@ -70,29 +70,27 @@ public class Client {
 		Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
 		{
 			Path localJarPath = new Path(myConf.getContainingJar());
-			Path hdfsJarPath = Path.mergePaths(hdfsPrefix, new Path("mpi_yarn_am.jar"));
+			Path hdfsJarPath = new Path(hdfsPrefix + "/mpi_yarn_am.jar");
 			log("copy local jar file " + myConf.getContainingJar() + " into " + hdfsJarPath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, localJarPath, hdfsJarPath);
 			LocalResource appMasterJar = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, hdfsJarPath, appMasterJar);
 			localResources.put(hdfsJarPath.getName(), appMasterJar);
 		}
-		
 		{
-			Path executablePath = Path.mergePaths(hdfsPrefix, new Path(myConf.getExecutableName()));
+			Path executablePath = new Path(hdfsPrefix + "/" + myConf.getExecutableName());
 			log("copy executable file " + myConf.getExecutablePath() + " into " + executablePath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, new Path(myConf.getExecutablePath()), executablePath);
 		}
-		
 		{
-			Path proxyPath = Path.mergePaths(hdfsPrefix, new Path(MyConf.PMI_PROXY));
+			Path proxyPath = new Path(hdfsPrefix + "/" + MyConf.PMI_PROXY);
 			log("copy hydra proxy " + myConf.getHydraProxy() + " into " + proxyPath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, new Path(myConf.getHydraProxy()), proxyPath);
 		}
 		
 		{
 			// mpiexec should be a resource for AM
-			Path mpiexecPath = Path.mergePaths(hdfsPrefix, new Path(MyConf.MPIEXEC));
+			Path mpiexecPath = new Path(hdfsPrefix + "/" + MyConf.MPIEXEC);
 			log("copy mpiexec " + myConf.getHydraMpiexec() + " into " + mpiexecPath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, new Path(myConf.getHydraMpiexec()), mpiexecPath);
 			LocalResource mpiexecResource = Records.newRecord(LocalResource.class);
@@ -100,11 +98,11 @@ public class Client {
 			localResources.put(MyConf.MPIEXEC, mpiexecResource);
 		}
 
-		Path soPrefix = Path.mergePaths(hdfsPrefix, new Path("sofiles/"));
+		Path soPrefix = new Path(hdfsPrefix + "/sofiles/");
 		dfs.mkdirs(soPrefix);
 		for (String sofile : myConf.getSharedObjectPathList()) {
 			Path src = new Path(sofile);
-			Path target = Path.mergePaths(hdfsPrefix, new Path("sofiles/" + src.getName()));
+			Path target = new Path(hdfsPrefix + "/sofiles/" + src.getName());
 			log("copy shared object file " + src.toUri().toString() + " into " + target.toUri().toString());
 			dfs.copyFromLocalFile(false, true, src, target);
 		}
@@ -176,6 +174,8 @@ public class Client {
 				}
 			}
 		}
+		
+		Thread.sleep(3000);
 		
 		if(dfs.exists(outputPath)) {
 			FileStatus fileStatus = dfs.getFileStatus(outputPath);

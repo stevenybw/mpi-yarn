@@ -237,7 +237,7 @@ public class MyConf implements Serializable {
 		if(cmd.getOptionValue("o") != null) {
 			outputPath = cmd.getOptionValue("o");
 		} else {
-			outputPath = "output." + executableName + "." + String.valueOf(1900 + now.getYear())  + "_" + String.valueOf(now.getMonth())
+			outputPath = hdfsPrefix + "/output." + executableName + "." + String.valueOf(1900 + now.getYear())  + "_" + String.valueOf(now.getMonth())
 			+ "_" + String.valueOf(now.getDay()) + "_" + String.valueOf(now.getHours()) + "_" + String.valueOf(now.getMinutes())
 			+ "_" + String.valueOf(now.getSeconds()) + ".txt";
 		}
