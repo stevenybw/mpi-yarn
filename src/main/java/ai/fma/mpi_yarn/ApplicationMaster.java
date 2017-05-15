@@ -228,7 +228,7 @@ public class ApplicationMaster {
 		Scanner mpirunEscanner;
 		{
 			String cmd = MessageFormat.format(
-					"./{0} -launcher manual -ppn 1 -hosts {1} -wdir /tmp /tmp/MPIYARN_{2} {3}", MyConf.MPIEXEC,
+					"./{0} -launcher manual -ppn 1 -hosts {1} -wdir /tmp {2} {3}", MyConf.MPIEXEC,
 					hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
 			System.out.println("invoke " + cmd);
 			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
@@ -249,8 +249,7 @@ public class ApplicationMaster {
 				ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
 				ctx.setLocalResources(localResources);
 				ArrayList<String> commands = new ArrayList<String>();
-				commands.add(MessageFormat.format("ln -sf $PWD/{0} /tmp/MPIYARN_{0} &&", myConf.getExecutableName())
-						+ container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
+				commands.add(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
 						+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 				// commands.add("echo ContainerFinished!");
 				ctx.setCommands(commands);
