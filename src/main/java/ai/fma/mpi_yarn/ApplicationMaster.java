@@ -228,7 +228,7 @@ public class ApplicationMaster {
 		Scanner mpirunEscanner;
 		{
 			String cmd = MessageFormat.format(
-					"./{0} -launcher manual -ppn 1 -hosts {1} -wdir /tmp {2} {3}", MyConf.MPIEXEC,
+					"./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,
 					hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
 			System.out.println("invoke " + cmd);
 			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
