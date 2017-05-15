@@ -1,0 +1,74 @@
+#!/usr/bin/env python
+
+import argparse
+import os
+
+"""
+QUEUE_NAME = "default"
+HADOOP_PREFIX = "/Users/ybw/local/hadoop-2.6.5"
+HDFS_PREFIX = "hdfs://localhost:9000"
+MPI_YARN_PREFIX = "/Users/ybw/OpenSourceCode/mpi_yarn"
+MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar"
+CONTAINER_MEMORY_MB = "2048"
+"""
+
+QUEUE_NAME = "kylindev"
+HADOOP_PREFIX = "/soft/hadoop"
+HDFS_PREFIX = "hdfs://kylin/tmp"
+MPI_YARN_PREFIX = "/home/dvpuser1/mpi_yarn"
+MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar"
+CONTAINER_MEMORY_MB = "2048"
+
+parser = argparse.ArgumentParser(description='MPI-YARN launcher.')
+parser.add_argument('-N', '--num-nodes', type=int, help='number of nodes')
+parser.add_argument('-n', '--num-procs', type=int, help='number of processes')
+parser.add_argument('-ppn', '--procs-per-node', type=int, help='number of processes per node')
+parser.add_argument('-so', type=str, action="append", help='shared object path')
+parser.add_argument('-env', type=str, action="append", help='environment variable name to pass')
+parser.add_argument('-m', type=int, default=CONTAINER_MEMORY_MB, help='container memory in MB')
+parser.add_argument('executable', type=str, nargs='+',
+                    help='executable and its arg list')
+
+args = parser.parse_args()
+
+cmd = "{HADOOP_PREFIX}/bin/hadoop fs -copyFromLocal -f {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} {HDFS_PREFIX}/mpi-yarn-1.0.0.jar".format(HADOOP_PREFIX=HADOOP_PREFIX, 
+	HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME)
+#print(cmd)
+os.system(cmd)
+
+if(args.num_nodes and args.procs_per_node):
+	N = args.num_nodes
+	ppn = args.procs_per_node
+	EXECUTABLE_PATH = args.executable[0]
+	cmd = "{HADOOP_PREFIX}/bin/hadoop jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} ai.fma.mpi_yarn.Client -q {QUEUE_NAME} -a {EXECUTABLE_PATH} -N {N} -ppn {ppn} -p {HDFS_PREFIX}/ -jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} -hydra {MPI_YARN_PREFIX}/hydra-pm"\
+		.format(HADOOP_PREFIX=HADOOP_PREFIX, HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME, EXECUTABLE_PATH=EXECUTABLE_PATH, N=N, ppn=ppn, QUEUE_NAME=QUEUE_NAME)
+	if(len(args.executable) > 1):
+		cmd = cmd + " -args \"" + " ".join(args.executable[1:]) + "\""
+	if(args.so and len(args.so) > 0):
+		cmd = cmd + " -sharedlist " + ",".join(args.so)
+	if(args.env and len(args.env) > 0):
+		cmd = cmd + " -envlist " + ",".join(args.env)
+	if(args.m):
+		cmd = cmd + " -m " + str(args.m)
+	#print(cmd)
+	os.system(cmd)
+	
+elif(args.num_procs):
+	n = args.num_procs
+	EXECUTABLE_PATH = args.executable[0]
+	cmd = "{HADOOP_PREFIX}/bin/hadoop jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} ai.fma.mpi_yarn.Client -q {QUEUE_NAME} -a {EXECUTABLE_PATH} -n {n} -p {HDFS_PREFIX}/ -jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} -hydra {MPI_YARN_PREFIX}/hydra-pm"\
+		.format(HADOOP_PREFIX=HADOOP_PREFIX, HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME, EXECUTABLE_PATH=EXECUTABLE_PATH, n=n, QUEUE_NAME=QUEUE_NAME)
+	if(len(args.executable) > 1):
+		cmd = cmd + " -args \"" + " ".join(args.executable[1:]) + "\""
+	if(args.so and len(args.so) > 0):
+		cmd = cmd + " -sharedlist " + ",".join(args.so)
+	if(args.env and len(args.env) > 0):
+		cmd = cmd + " -envlist " + ",".join(args.env)
+	if(args.m):
+		cmd = cmd + " -m " + str(args.m)
+	#print(cmd)
+	os.system(cmd)
+
+else:
+	print("at least (-n) or (-N, -ppn) must be set")
+	parser.print_help()
