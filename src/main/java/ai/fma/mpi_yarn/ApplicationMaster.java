@@ -1,5 +1,6 @@
 package ai.fma.mpi_yarn;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -32,6 +33,17 @@ import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.util.Records;
 
 public class ApplicationMaster {
+	public static void clientPrint(FSDataOutputStream outputStream, String mesg) throws IOException {
+		System.out.print(mesg);
+		outputStream.writeBytes(mesg);
+		outputStream.hsync();
+	}
+
+	public static void clientPrintln(FSDataOutputStream outputStream, String mesg) throws IOException {
+		System.out.println(mesg);
+		outputStream.writeBytes(mesg + "\n");
+		outputStream.hsync();
+	}
 
 	public static void main(String[] args) throws Exception {
 		System.out.println("AM Start");
@@ -162,9 +174,9 @@ public class ApplicationMaster {
 			}
 		}
 
-		System.out.println("resource complete: ");
+		clientPrintln(outputStream, "acquired node list: ");
 		for (String host : hostContainers.keySet()) {
-			System.out.println("   " + host + ":" + hostContainers.get(host).size());
+			clientPrintln(outputStream, "   " + host + ":" + hostContainers.get(host).size());
 		}
 
 		Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
@@ -227,8 +239,7 @@ public class ApplicationMaster {
 		Scanner mpirunScanner;
 		Scanner mpirunEscanner;
 		{
-			String cmd = MessageFormat.format(
-					"./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,
+			String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,
 					hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
 			System.out.println("invoke " + cmd);
 			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
@@ -266,49 +277,72 @@ public class ApplicationMaster {
 		}
 
 		// Wait for containers
-		boolean errorLaunchingContainer = false;
+		int bufferBytes = 4096;
+		byte[] buffer = new byte[bufferBytes];
 		int completedContainers = 0;
+		boolean iStreamClosed = false;
+		boolean eStreamClosed = false;
 		while (completedContainers < containers.size()) {
 			AllocateResponse response = rmClient.allocate(responseId++);
 			for (ContainerStatus status : response.getCompletedContainersStatuses()) {
 				++completedContainers;
-				System.out.println(
-						"Completed container " + status.getContainerId() + " with exit code " + status.getExitStatus());
 				if (status.getExitStatus() != 0) {
-					errorLaunchingContainer = true;
+					clientPrintln(outputStream, "Completed container " + status.getContainerId() + " with exit code "
+							+ status.getExitStatus());
+				} else {
+					System.out.println("Completed container " + status.getContainerId() + " with exit code "
+							+ status.getExitStatus());
 				}
 			}
 			if (mpirunIstream.available() > 0) {
-				String nextLine = mpirunScanner.nextLine();
-				System.out.println(nextLine);
-				outputStream.writeBytes(nextLine + "\n");
-				outputStream.hsync();
+				int bytes = mpirunIstream.read(buffer, 0, bufferBytes);
+				if (bytes == -1) {
+					iStreamClosed = true;
+				} else {
+					String next = new String(buffer, 0, bytes);
+					clientPrint(outputStream, next);
+				}
 			}
 			if (mpirunEstream.available() > 0) {
-				String nextLine = mpirunEscanner.nextLine();
-				System.out.println("[stderr] " + nextLine);
-				outputStream.writeBytes("[stderr] " + nextLine + "\n");
-				outputStream.hsync();
+				int bytes = mpirunEstream.read(buffer, 0, bufferBytes);
+				if (bytes == -1) {
+					eStreamClosed = true;
+				} else {
+					String next = new String(buffer, 0, bytes);
+					clientPrint(outputStream, next);
+				}
 			}
 			Thread.sleep(100);
 		}
-		if (!errorLaunchingContainer) {
-			while (mpirunScanner.hasNext()) {
-				String nextLine = mpirunScanner.nextLine();
-				System.out.println(nextLine);
-				outputStream.writeBytes(nextLine + "\n");
-				outputStream.hsync();
+		try {
+			{
+				int bytes = 0;
+				while (!iStreamClosed) {
+					bytes = mpirunIstream.read(buffer, 0, bufferBytes);
+					if (bytes == -1) {
+						iStreamClosed = true;
+					} else {
+						String next = new String(buffer, 0, bytes);
+						clientPrint(outputStream, next);
+					}
+				}
 			}
-			while (mpirunEscanner.hasNext()) {
-				String nextLine = mpirunEscanner.nextLine();
-				System.out.println("[stderr] " + nextLine);
-				outputStream.writeBytes("[stderr] " + nextLine + "\n");
-				outputStream.hsync();
+			{
+				int bytes = 0;
+				while (!eStreamClosed) {
+					bytes = mpirunEstream.read(buffer, 0, bufferBytes);
+					if (bytes == -1) {
+						eStreamClosed = true;
+					} else {
+						String next = new String(buffer, 0, bytes);
+						clientPrint(outputStream, next);
+					}
+				}
 			}
-			// Un-register with ResourceManager
-			rmClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "", "");
-		} else {
-			rmClient.unregisterApplicationMaster(FinalApplicationStatus.FAILED, "failed due to one of the container launch returns non-zero", "");
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
 		}
+		// Un-register with ResourceManager
+		rmClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "", "");
 	}
 }

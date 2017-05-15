@@ -87,7 +87,7 @@ public class Client {
 			log("copy hydra proxy " + myConf.getHydraProxy() + " into " + proxyPath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, new Path(myConf.getHydraProxy()), proxyPath);
 		}
-		
+
 		{
 			// mpiexec should be a resource for AM
 			Path mpiexecPath = new Path(hdfsPrefix + "/" + MyConf.MPIEXEC);
@@ -106,7 +106,6 @@ public class Client {
 			log("copy shared object file " + src.toUri().toString() + " into " + target.toUri().toString());
 			dfs.copyFromLocalFile(false, true, src, target);
 		}
-		
 
 		// Setup jar for ApplicationMaster
 
@@ -150,41 +149,46 @@ public class Client {
 		ApplicationId appId = appContext.getApplicationId();
 		System.out.println("submitting application " + appId + " to queue " + myConf.getQueueName());
 		System.out.println("output location = " + myConf.getOutputPath());
-		Path outputPath = new Path(myConf.getOutputPath());
 		yarnClient.submitApplication(appContext);
 
 		ApplicationReport appReport = yarnClient.getApplicationReport(appId);
 		YarnApplicationState appState = appReport.getYarnApplicationState();
 		long outputOffset = 0;
-		int bufferSize = 1024*1024;
+		int bufferSize = 1024 * 1024;
 		byte[] buffer = new byte[bufferSize];
 		while (appState != YarnApplicationState.FINISHED && appState != YarnApplicationState.KILLED
 				&& appState != YarnApplicationState.FAILED) {
 			Thread.sleep(100);
 			appReport = yarnClient.getApplicationReport(appId);
 			appState = appReport.getYarnApplicationState();
-			if(dfs.exists(outputPath)) {
-				FileStatus fileStatus = dfs.getFileStatus(outputPath);
-				if(fileStatus.getLen() > outputOffset) {
-					FSDataInputStream inputStream = dfs.open(outputPath);
-					int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
-					String nextChunk = new String(buffer, StandardCharsets.UTF_8);
+			Path outputPath = new Path(myConf.getOutputPath());
+			if (dfs.exists(outputPath)) {
+				FSDataInputStream inputStream = dfs.open(outputPath);
+				int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
+				if (readBytes != -1) {
+					String nextChunk = new String(buffer, 0, readBytes, StandardCharsets.UTF_8);
 					System.out.print(nextChunk);
 					outputOffset += readBytes;
 				}
+				inputStream.close();
 			}
 		}
-		
+
+		// use sleep because we have to wait for AM's write to HDFS visible
 		Thread.sleep(3000);
-		
-		if(dfs.exists(outputPath)) {
-			FileStatus fileStatus = dfs.getFileStatus(outputPath);
-			while(fileStatus.getLen() > outputOffset) {
+		Path outputPath = new Path(myConf.getOutputPath());
+		if (dfs.exists(outputPath)) {
+			while (true) {
 				FSDataInputStream inputStream = dfs.open(outputPath);
 				int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
-				String nextChunk = new String(buffer, StandardCharsets.UTF_8);
-				System.out.print(nextChunk);
-				outputOffset += readBytes;
+				if (readBytes != -1) {
+					String nextChunk = new String(buffer, 0, readBytes, StandardCharsets.UTF_8);
+					System.out.print(nextChunk);
+					outputOffset += readBytes;
+				} else {
+					inputStream.close();
+					break;
+				}
 			}
 		}
 
