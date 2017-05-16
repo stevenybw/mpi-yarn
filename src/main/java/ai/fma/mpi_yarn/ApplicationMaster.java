@@ -234,87 +234,88 @@ public class ApplicationMaster {
 			}
 		}
 
-		InputStream mpirunIstream;
-		InputStream mpirunEstream;
-		Scanner mpirunScanner;
-		Scanner mpirunEscanner;
-		{
-			String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,
-					hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
-			System.out.println("invoke " + cmd);
-			ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
-			Process p = pb.start();
-			mpirunIstream = p.getInputStream();
-			mpirunEstream = p.getErrorStream();
-			mpirunScanner = new Scanner(mpirunIstream);
-			mpirunEscanner = new Scanner(mpirunEstream);
-			for (Container container : containerSequence) {
-				String line = mpirunScanner.nextLine();
-				// HYDRA_LAUNCH: /Users/ybw/local/mpich-3.2/bin/hydra_pmi_proxy
-				// --control-port 172.23.100.68:58247 --rmk user --launcher
-				// manual --demux poll --pgid 0 --retries 10 --usize -2
-				// --proxy-id 0
-				String[] sp = line.split(" ");
-				String[] sub_sp = Arrays.copyOfRange(sp, 2, sp.length);
-				String container_cmd = "./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
-				ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
-				ctx.setLocalResources(localResources);
-				ArrayList<String> commands = new ArrayList<String>();
-				commands.add(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
-						+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
-				// commands.add("echo ContainerFinished!");
-				ctx.setCommands(commands);
-
-				nmClient.startContainer(container, ctx);
-				System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
-			}
-			{
-				String nextLine = mpirunScanner.nextLine();
-				if (!nextLine.startsWith("HYDRA_LAUNCH_END")) {
-					throw new RuntimeException("Not Start With HYDRA_LAUNCH_END, but " + nextLine);
-				}
-			}
-		}
-
-		// Wait for containers
-		int bufferBytes = 4096;
-		byte[] buffer = new byte[bufferBytes];
-		int completedContainers = 0;
-		boolean iStreamClosed = false;
-		boolean eStreamClosed = false;
-		while (completedContainers < containers.size()) {
-			AllocateResponse response = rmClient.allocate(responseId++);
-			for (ContainerStatus status : response.getCompletedContainersStatuses()) {
-				++completedContainers;
-				if (status.getExitStatus() != 0) {
-					clientPrintln(outputStream, "Completed container " + status.getContainerId() + " with exit code "
-							+ status.getExitStatus());
-				} else {
-					System.out.println("Completed container " + status.getContainerId() + " with exit code "
-							+ status.getExitStatus());
-				}
-			}
-			if (mpirunIstream.available() > 0) {
-				int bytes = mpirunIstream.read(buffer, 0, bufferBytes);
-				if (bytes == -1) {
-					iStreamClosed = true;
-				} else {
-					String next = new String(buffer, 0, bytes);
-					clientPrint(outputStream, next);
-				}
-			}
-			if (mpirunEstream.available() > 0) {
-				int bytes = mpirunEstream.read(buffer, 0, bufferBytes);
-				if (bytes == -1) {
-					eStreamClosed = true;
-				} else {
-					String next = new String(buffer, 0, bytes);
-					clientPrint(outputStream, next);
-				}
-			}
-			Thread.sleep(100);
-		}
 		try {
+			InputStream mpirunIstream;
+			InputStream mpirunEstream;
+			Scanner mpirunScanner;
+			Scanner mpirunEscanner;
+			{
+				String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,
+						hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+				System.out.println("invoke " + cmd);
+				ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
+				Process p = pb.start();
+				mpirunIstream = p.getInputStream();
+				mpirunEstream = p.getErrorStream();
+				mpirunScanner = new Scanner(mpirunIstream);
+				mpirunEscanner = new Scanner(mpirunEstream);
+				for (Container container : containerSequence) {
+					String line = mpirunScanner.nextLine();
+					// HYDRA_LAUNCH:
+					// /Users/ybw/local/mpich-3.2/bin/hydra_pmi_proxy
+					// --control-port 172.23.100.68:58247 --rmk user --launcher
+					// manual --demux poll --pgid 0 --retries 10 --usize -2
+					// --proxy-id 0
+					String[] sp = line.split(" ");
+					String[] sub_sp = Arrays.copyOfRange(sp, 2, sp.length);
+					String container_cmd = "./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
+					ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
+					ctx.setLocalResources(localResources);
+					ArrayList<String> commands = new ArrayList<String>();
+					commands.add(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
+							+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
+					// commands.add("echo ContainerFinished!");
+					ctx.setCommands(commands);
+
+					nmClient.startContainer(container, ctx);
+					System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
+				}
+				{
+					String nextLine = mpirunScanner.nextLine();
+					if (!nextLine.startsWith("HYDRA_LAUNCH_END")) {
+						throw new RuntimeException("Not Start With HYDRA_LAUNCH_END, but " + nextLine);
+					}
+				}
+			}
+
+			// Wait for containers
+			int bufferBytes = 4096;
+			byte[] buffer = new byte[bufferBytes];
+			int completedContainers = 0;
+			boolean iStreamClosed = false;
+			boolean eStreamClosed = false;
+			while (completedContainers < containers.size()) {
+				AllocateResponse response = rmClient.allocate(responseId++);
+				for (ContainerStatus status : response.getCompletedContainersStatuses()) {
+					++completedContainers;
+					if (status.getExitStatus() != 0) {
+						clientPrintln(outputStream, "Completed container " + status.getContainerId()
+								+ " with exit code " + status.getExitStatus());
+					} else {
+						System.out.println("Completed container " + status.getContainerId() + " with exit code "
+								+ status.getExitStatus());
+					}
+				}
+				if (mpirunIstream.available() > 0) {
+					int bytes = mpirunIstream.read(buffer, 0, bufferBytes);
+					if (bytes == -1) {
+						iStreamClosed = true;
+					} else {
+						String next = new String(buffer, 0, bytes);
+						clientPrint(outputStream, next);
+					}
+				}
+				if (mpirunEstream.available() > 0) {
+					int bytes = mpirunEstream.read(buffer, 0, bufferBytes);
+					if (bytes == -1) {
+						eStreamClosed = true;
+					} else {
+						String next = new String(buffer, 0, bytes);
+						clientPrint(outputStream, next);
+					}
+				}
+				Thread.sleep(100);
+			}
 			{
 				int bytes = 0;
 				while (!iStreamClosed) {
@@ -341,6 +342,7 @@ public class ApplicationMaster {
 			}
 		} catch (Exception e) {
 			System.out.println(e.getMessage());
+			throw new RuntimeException();
 		}
 		// Un-register with ResourceManager
 		rmClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "", "");
