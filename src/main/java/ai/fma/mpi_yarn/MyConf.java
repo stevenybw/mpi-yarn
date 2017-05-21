@@ -325,8 +325,8 @@ public class MyConf implements Serializable {
 
 	public static void main(String[] args) throws Exception {
 		String[] a = "AAA BBB CCC".split(" ");
-		System.out.println(String.join(" ", a));
-		System.out.println(StringUtils.join(a, " "));
+    //System.out.println(String.join(" ", a));
+		//System.out.println(StringUtils.join(a, " "));
 
 		System.out.println("Hello");
 		// String[] test1 = {"-x", "16"};
