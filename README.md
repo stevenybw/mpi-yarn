@@ -74,7 +74,7 @@ CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 ```bash
 ./yrun [optional argument no.1][optional argument no.2][optional argument no.3]…[optional argument no. N] [location of the MPI executable and its argument] 
 ```
-**yrun** takes the following optional arguments: 
+
 |  Argument | usage  |
 |-------------|-------------|
 |-h   |provides a list of the arguments   |
