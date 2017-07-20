@@ -76,7 +76,7 @@ CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 ```
 **yrun** takes the following optional arguments: 
 |  Argument | usage  |
-|---|---|
+|-------------|-------------|
 |-h   |provides a list of the arguments   |
 |-n [int]|How many process should this job to start|
 |-N  [int] |How many nodes should this job to use. Use in conjunction with -ppn   |
