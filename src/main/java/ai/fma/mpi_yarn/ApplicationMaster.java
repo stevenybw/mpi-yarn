@@ -97,6 +97,7 @@ public class ApplicationMaster {
 			}
 
 			// Obtain allocated containers
+			int tempCount = 0;
 			while (containers.size() < n) {
 				AllocateResponse response = rmClient.allocate(responseId++);
 				for (Container container : response.getAllocatedContainers()) {
@@ -109,8 +110,11 @@ public class ApplicationMaster {
 					}
 					hostContainers.get(host).add(container);
 				}
+				System.out.println("Wait for next container, sleep for 100 ms. Already has  " + containers.size() + "containers." + "This message has been printed" + tempCount + "times.");
+				tempCount++;
 				Thread.sleep(100);
 			}
+			System.out.println("Done acquiring containers");
 		} else if (myConf.getLocalityType() == LocalityType.GROUP) {
 			int N = myConf.getNumNodes();
 			int ppn = myConf.getNumProcsPerNode();
@@ -191,6 +195,13 @@ public class ApplicationMaster {
 			LocalResource pmiProxyResource = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, pmiProxyPath, pmiProxyResource);
 			localResources.put(pmiProxyPath.getName(), pmiProxyResource);
+		}
+		for (int k = 0; k < myConf.getLocalPathSF().size();k++) {
+		//-----WIP-----
+			Path target = new Path(hdfsPrefix + "/sf/" + myConf.getRemotePathSF().get(k));
+			LocalResource sfResource = Records.newRecord(LocalResource.class);
+			MyConf.setupLocalResource(dfs, target, sfResource);
+			localResources.put(myConf.getRemotePathSF().get(k), sfResource);
 		}
 		for (String sofile : myConf.getSharedObjectPathList()) {
 			Path src = new Path(sofile);

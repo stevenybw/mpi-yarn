@@ -12,10 +12,10 @@ MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar"
 CONTAINER_MEMORY_MB = "2048"
 """
 
-QUEUE_NAME = "kylindev"
-HADOOP_PREFIX = "/soft/hadoop"
-HDFS_PREFIX = "hdfs://kylin/tmp"
-MPI_YARN_PREFIX = "/home/dvpuser1/mpi_yarn"
+QUEUE_NAME = "default"
+HADOOP_PREFIX = "/opt/hadoop"
+HDFS_PREFIX = "hdfs://master:9000"
+MPI_YARN_PREFIX = "/home/yarnMPI/mpi-yarn"
 MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar"
 CONTAINER_MEMORY_MB = "2048"
 
@@ -26,9 +26,8 @@ parser.add_argument('-ppn', '--procs-per-node', type=int, help='number of proces
 parser.add_argument('-so', type=str, action="append", help='shared object path')
 parser.add_argument('-env', type=str, action="append", help='environment variable name to pass')
 parser.add_argument('-m', type=int, default=CONTAINER_MEMORY_MB, help='container memory in MB')
-parser.add_argument('executable', type=str, nargs='+',
-                    help='executable and its arg list')
-
+parser.add_argument('executable',nargs =argparse.REMAINDER, type=str,help='executable')
+parser.add_argument('-sf',type=str,help='supplementary files in localpath:remotepath format')
 args = parser.parse_args()
 
 cmd = "{HADOOP_PREFIX}/bin/hadoop fs -copyFromLocal -f {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} {HDFS_PREFIX}/mpi-yarn-1.0.0.jar".format(HADOOP_PREFIX=HADOOP_PREFIX, 
@@ -50,6 +49,8 @@ if(args.num_nodes and args.procs_per_node):
 		cmd = cmd + " -envlist " + ",".join(args.env)
 	if(args.m):
 		cmd = cmd + " -m " + str(args.m)
+	if(args.sf and len(args.sf) > 0):
+		cmd = cmd + " -sf " + str(args.sf)
 	#print(cmd)
 	os.system(cmd)
 	
@@ -66,7 +67,9 @@ elif(args.num_procs):
 		cmd = cmd + " -envlist " + ",".join(args.env)
 	if(args.m):
 		cmd = cmd + " -m " + str(args.m)
-	#print(cmd)
+        if(args.sf and len(args.sf) > 0):
+                cmd = cmd + " -sf " + str(args.sf)
+	print(cmd)
 	os.system(cmd)
 
 else:

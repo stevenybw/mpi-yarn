@@ -119,11 +119,21 @@ public class MyConf implements Serializable {
 	public String getContainingJar() {
 		return containingJar;
 	}
+	public List<String> getLocalPathSF() {
+		return localPathSF;
+	}
+	public List<String> getRemotePathSF() {
+		return remotePathSF;
+	}
 
 	public MyConf(String[] args) {
 		now = new Date();
 
 		Options options = new Options();
+
+		Option optionSupplementPath = new Option("sp", "", true, "path of the directory that contains supplmentary files");
+		optionSupplementPath.setRequired(false);
+		options.addOption(optionSupplementPath);
 
 		Option optionExecutablePath = new Option("a", "", true, "path to the MPI executable");
 		optionExecutablePath.setRequired(true);
@@ -132,6 +142,10 @@ public class MyConf implements Serializable {
 		Option optionExecutableArgs = new Option("args", "", true, "argument to the MPI executable");
 		optionExecutableArgs.setRequired(false);
 		options.addOption(optionExecutableArgs);
+
+		Option supplementPathArgs = new Option("sf", "", true, "path of additional/supplementary files.");
+		supplementPathArgs.setRequired(false);
+		options.addOption(supplementPathArgs);
 
 		Option optionHdfsPrefix = new Option("p", "", true, "HDFS prefix");
 		optionHdfsPrefix.setRequired(true);
@@ -261,6 +275,17 @@ public class MyConf implements Serializable {
 			}
 		}
 
+		localPathSF = new java.util.ArrayList<String>();
+		remotePathSF = new java.util.ArrayList<String>();
+		if(cmd.getOptionValue("sf") != null) {
+			for(String pair : cmd.getOptionValue("sf").split(",")) {
+				localPathSF.add(pair.split(":")[0]);
+				System.out.println(pair.split(":")[0]);
+				remotePathSF.add(pair.split(":")[1]);
+				System.out.println(pair.split(":")[1]);
+			}
+		}
+
 		containingJar = cmd.getOptionValue("jar");
 		File containingJarFile = new File(containingJar);
 		if (!containingJarFile.exists()) {
@@ -299,6 +324,8 @@ public class MyConf implements Serializable {
 	private String hydraPrefix;
 	private HashSet<String> envList;
 	private String executablePath;
+	private List<String> localPathSF;
+	private List<String> remotePathSF;
 	private String executableArgs;
 	private File executableFile;
 	private String executableName;

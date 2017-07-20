@@ -107,6 +107,15 @@ public class Client {
 			dfs.copyFromLocalFile(false, true, src, target);
 		}
 
+		Path sfPrefix = new Path(hdfsPrefix + "/sf/");
+		dfs.mkdirs(sfPrefix);
+		for (int k = 0; k < myConf.getLocalPathSF().size();k++) {
+			Path src = new Path(myConf.getLocalPathSF().get(k));
+			Path target = new Path(hdfsPrefix + "/sf/" + myConf.getRemotePathSF().get(k));
+			log("copy supplementary file" + src.toUri().toString() + " into " + target.toUri().toString());
+			dfs.copyFromLocalFile(false, true, src, target);
+		}
+		
 		// Setup jar for ApplicationMaster
 
 		amContainer.setLocalResources(localResources);
