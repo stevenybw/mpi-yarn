@@ -96,5 +96,9 @@ For example, if I want to run **ls** on four node while uploading a small text f
 The output of this should be
 ```bash
 config.txt
-```
+config.txt
+config.txt
+config.txt
+```，
+each line coming from one of the four nodes
 
