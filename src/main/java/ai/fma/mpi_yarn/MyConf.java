@@ -33,6 +33,7 @@ import org.apache.hadoop.yarn.util.ConverterUtils;
 public class MyConf implements Serializable {
 	public static String MPIEXEC = "mpiexec.hydra";
 	public static String PMI_PROXY = "hydra_pmi_proxy";
+	public static String testSS = "mytest.sh";
 
 	public String getHydraPrefix() {
 		return hydraPrefix;
@@ -125,7 +126,12 @@ public class MyConf implements Serializable {
 	public List<String> getRemotePathSF() {
 		return remotePathSF;
 	}
-
+	public List<String> getEnvHomeList() {
+		return envHomeList;
+	}
+	public List<String> getEnvHomeEnv() {
+		return envHomeEnv;
+	}
 	public MyConf(String[] args) {
 		now = new Date();
 
@@ -259,14 +265,19 @@ public class MyConf implements Serializable {
 		}
 		if (cmd.getOptionValue("ppn") != null) {
 			numProcsPerNode = Integer.valueOf(cmd.getOptionValue("ppn"));
-		} else {
+		} else { 
 			numProcsPerNode = 1;
 		}
+
+		envHomeList = new java.util.ArrayList<String>();
+		envHomeEnv = new java.util.ArrayList<String>();
 		envList = new HashSet<String>();
 		if (cmd.getOptionValue("envlist") != null) {
 			for (String env : cmd.getOptionValue("envlist").split(",")) {
-				envList.add(env);
+				envHomeList.add(env.split("=")[0]);
+				envHomeEnv.add(env.split("=")[1]);
 			}
+			//System.out.println("CLASSPATH: " + System.getenv("CLASSPATH"));
 		}
 		sharedObjectPathList = new java.util.ArrayList<String>();
 		if (cmd.getOptionValue("sharedlist") != null) {
@@ -280,9 +291,9 @@ public class MyConf implements Serializable {
 		if(cmd.getOptionValue("sf") != null) {
 			for(String pair : cmd.getOptionValue("sf").split(",")) {
 				localPathSF.add(pair.split(":")[0]);
-				System.out.println(pair.split(":")[0]);
+				//System.out.println(pair.split(":")[0]);
 				remotePathSF.add(pair.split(":")[1]);
-				System.out.println(pair.split(":")[1]);
+				//System.out.println(pair.split(":")[1]);
 			}
 		}
 
@@ -323,6 +334,8 @@ public class MyConf implements Serializable {
 	private String hdfsPrefix;
 	private String hydraPrefix;
 	private HashSet<String> envList;
+	private List<String> envHomeList;
+	private List<String> envHomeEnv;
 	private String executablePath;
 	private List<String> localPathSF;
 	private List<String> remotePathSF;

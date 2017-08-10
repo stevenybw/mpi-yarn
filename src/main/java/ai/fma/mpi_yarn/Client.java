@@ -39,7 +39,7 @@ public class Client {
 	MyConf myConf;
 
 	private void log(String str) {
-		System.out.println("[CLIENT] " + str);
+		System.out.println("[CLIENT] " + str + "\n");
 	}
 
 	public void run(String[] args) throws Exception {
@@ -86,9 +86,6 @@ public class Client {
 			Path proxyPath = new Path(hdfsPrefix + "/" + MyConf.PMI_PROXY);
 			log("copy hydra proxy " + myConf.getHydraProxy() + " into " + proxyPath.toUri().toString());
 			dfs.copyFromLocalFile(false, true, new Path(myConf.getHydraProxy()), proxyPath);
-		}
-
-		{
 			// mpiexec should be a resource for AM
 			Path mpiexecPath = new Path(hdfsPrefix + "/" + MyConf.MPIEXEC);
 			log("copy mpiexec " + myConf.getHydraMpiexec() + " into " + mpiexecPath.toUri().toString());
@@ -96,6 +93,16 @@ public class Client {
 			LocalResource mpiexecResource = Records.newRecord(LocalResource.class);
 			MyConf.setupLocalResource(dfs, mpiexecPath, mpiexecResource);
 			localResources.put(MyConf.MPIEXEC, mpiexecResource);
+		}
+
+		{
+			String testSS = MyConf.testSS;
+			Path testPath = new Path(testSS);
+			//log("copy testing shell script" + testSS " into " + testPath.toUri().toString());
+			dfs.copyFromLocalFile(false, true, new Path(testSS), testPath);
+			LocalResource testResource = Records.newRecord(LocalResource.class);
+			MyConf.setupLocalResource(dfs, testPath, testResource);
+			localResources.put(testSS, testResource);
 		}
 
 		Path soPrefix = new Path(hdfsPrefix + "/sofiles/");
@@ -106,7 +113,6 @@ public class Client {
 			log("copy shared object file " + src.toUri().toString() + " into " + target.toUri().toString());
 			dfs.copyFromLocalFile(false, true, src, target);
 		}
-
 		Path sfPrefix = new Path(hdfsPrefix + "/sf/");
 		dfs.mkdirs(sfPrefix);
 		for (int k = 0; k < myConf.getLocalPathSF().size();k++) {
@@ -129,19 +135,28 @@ public class Client {
 			classPathEnv.append(c.trim());
 		}
 		HashSet<String> envList = myConf.getEnvList();
-		envList.add("JAVA_HOME");
-		envList.add("PATH");
-		appMasterEnv.put("CLASSPATH", System.getenv("CLASSPATH") + ":" + classPathEnv.toString());
-		for (String envName : System.getenv().keySet()) {
-			if (envList.contains(envName)) {
-				appMasterEnv.put(envName, System.getenv(envName));
-			}
+		appMasterEnv.put("JAVA_HOME", System.getenv("JAVA_HOME"));		
+		appMasterEnv.put("PATH", System.getenv("PATH"));
+		//appMasterEnv.put("CLASSPATH", System.getenv("CLASSPATH") + ":" + classPathEnv.toString());
+		for (int k = 0;k < myConf.getEnvHomeList().size();k++) {
+				String tempEnv = System.getenv(myConf.getEnvHomeList().get(k)) + ":" + myConf.getEnvHomeEnv().get(k);
+				appMasterEnv.put(myConf.getEnvHomeList().get(k), tempEnv);
 		}
+		if(appMasterEnv.get("CLASSPATH") == null) {
+			appMasterEnv.put("CLASSPATH", System.getenv("CLASSPATH") + ":" + classPathEnv.toString());
+		}
+		else {
+			appMasterEnv.put("CLASSPATH", appMasterEnv.get("CLASSPATH") + ":" + classPathEnv.toString());
+		}
+		//System.out.println("\nCLIENT CLASSPATH: " + System.getenv("CLASSPATH"));
+		//appMasterEnv.put("CLASSPATH", System.getenv("CLASSPATH") + ":" + classPathEnv.toString());
+		//System.out.println("CLIENT CLASSPATH: " + System.getenv("CLASSPATH"));
 		// convey MyConf to AM via environment variable
+		
 		appMasterEnv.put(MyConf.EnvName, MyConf.serialize(myConf));
 		log("Environment: " + appMasterEnv.toString());
 		amContainer.setEnvironment(appMasterEnv);
-
+		
 		// Set up resource type requirements for ApplicationMaster
 		Resource capability = Records.newRecord(Resource.class);
 		capability.setMemory(myConf.getContainerMemoryMb());

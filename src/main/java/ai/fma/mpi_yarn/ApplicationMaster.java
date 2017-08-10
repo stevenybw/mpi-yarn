@@ -196,6 +196,13 @@ public class ApplicationMaster {
 			MyConf.setupLocalResource(dfs, pmiProxyPath, pmiProxyResource);
 			localResources.put(pmiProxyPath.getName(), pmiProxyResource);
 		}
+		
+		{
+			Path testPath = new Path(MyConf.testSS);
+			LocalResource testResource = Records.newRecord(LocalResource.class);
+			MyConf.setupLocalResource(dfs, testPath, testResource);
+			localResources.put(testPath.getName(), testResource);
+		}
 		for (int k = 0; k < myConf.getLocalPathSF().size();k++) {
 		//-----WIP-----
 			Path target = new Path(hdfsPrefix + "/sf/" + myConf.getRemotePathSF().get(k));
@@ -210,10 +217,9 @@ public class ApplicationMaster {
 			MyConf.setupLocalResource(dfs, target, soResource);
 			localResources.put(target.getName(), soResource);
 		}
-		HashSet<String> envList = myConf.getEnvList();
 		Map<String, String> containerEnv = new HashMap<String, String>();
 		for (String envName : System.getenv().keySet()) {
-			if (envList.contains(envName)) {
+			if (myConf.getEnvHomeList().contains(envName)) {
 				containerEnv.put(envName, System.getenv(envName));
 			}
 		}
@@ -221,7 +227,7 @@ public class ApplicationMaster {
 		if (ldLibraryPath == null) {
 			ldLibraryPath = "./sofiles";
 		} else {
-			ldLibraryPath = "./sofiles:" + ldLibraryPath;
+			ldLibraryPath = "../sofiles:" + ldLibraryPath;
 		}
 		containerEnv.put("LD_LIBRARY_PATH", ldLibraryPath);
 		System.out.println("=== Environment ===");
@@ -250,9 +256,11 @@ public class ApplicationMaster {
 			InputStream mpirunEstream;
 			Scanner mpirunScanner;
 			Scanner mpirunEscanner;
-			{
-				String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,
-						hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+			{	
+				//System.out.println("CLASSPATH:" + System.getenv("CLASSPATH"));
+				//String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+				String cmd = MessageFormat.format("./mytest.sh ./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+				//String cmd = "/bin/echo CLASSPATH=$CLASSPATH";
 				System.out.println("invoke " + cmd);
 				ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
 				Process p = pb.start();
@@ -260,16 +268,32 @@ public class ApplicationMaster {
 				mpirunEstream = p.getErrorStream();
 				mpirunScanner = new Scanner(mpirunIstream);
 				mpirunEscanner = new Scanner(mpirunEstream);
+				
+				boolean debugDone = false;
+				while (!debugDone)
+				{
+					String line = mpirunScanner.nextLine();
+					clientPrintln(outputStream, "[AppMaster DEDBUG LOG] " + line);	
+					if(line.equals("==========Debug Done=========="))
+					{	
+						clientPrintln(outputStream, "[AppMaster DEDBUG LOG] Debug Done");
+						debugDone = true;
+					}
+				}
+				
 				for (Container container : containerSequence) {
 					String line = mpirunScanner.nextLine();
+					//clientPrintln(outputStream, "[Container starting] " + line);
 					// HYDRA_LAUNCH:
 					// /Users/ybw/local/mpich-3.2/bin/hydra_pmi_proxy
 					// --control-port 172.23.100.68:58247 --rmk user --launcher
 					// manual --demux poll --pgid 0 --retries 10 --usize -2
 					// --proxy-id 0
 					String[] sp = line.split(" ");
+					//System.out.println("SP length: " + sp.length + "\nSP: " + line + "\n");
 					String[] sub_sp = Arrays.copyOfRange(sp, 2, sp.length);
 					String container_cmd = "./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
+					//String container_cmd = "./mytest.sh ./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
 					ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
 					ctx.setLocalResources(localResources);
 					ArrayList<String> commands = new ArrayList<String>();
@@ -277,7 +301,7 @@ public class ApplicationMaster {
 							+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 					// commands.add("echo ContainerFinished!");
 					ctx.setCommands(commands);
-
+					ctx.setEnvironment(containerEnv);
 					nmClient.startContainer(container, ctx);
 					System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
 				}
@@ -288,7 +312,7 @@ public class ApplicationMaster {
 					}
 				}
 			}
-
+			clientPrintln(outputStream,"DEBUG STATE: All containers are started");
 			// Wait for containers
 			int bufferBytes = 4096;
 			byte[] buffer = new byte[bufferBytes];
@@ -327,6 +351,7 @@ public class ApplicationMaster {
 				}
 				Thread.sleep(100);
 			}
+			clientPrintln(outputStream,"DEBUG STATE: 2");
 			{
 				int bytes = 0;
 				while (!iStreamClosed) {
@@ -339,6 +364,7 @@ public class ApplicationMaster {
 					}
 				}
 			}
+			clientPrintln(outputStream,"DEBUG STATE: 3");
 			{
 				int bytes = 0;
 				while (!eStreamClosed) {
@@ -351,8 +377,10 @@ public class ApplicationMaster {
 					}
 				}
 			}
+			clientPrintln(outputStream,"DEBUG STATE: 4");
 		} catch (Exception e) {
-			System.out.println(e.getMessage());
+			System.out.println(e.getClass().getCanonicalName()  + ": " + e.getMessage());
+			e.printStackTrace(System.out);
 			throw new RuntimeException();
 		}
 		// Un-register with ResourceManager
