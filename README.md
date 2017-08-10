@@ -20,7 +20,7 @@ MPI is widely used in HPC (High Performance Computing) community, which is often
 git clone --recursive https://github.com/fma-cloud/mpi-yarn
 ```
 
-### 1.2 Compiling mpi-yarn bytecode
+### 1.2 Compile
 
 ```bash
 # compile mpi-yarn using maven
@@ -33,7 +33,7 @@ You will see **./target/mpi-yarn-${VERSION}.jar**, which contains the client and
 ## 2. hydra launcher
 ### 2.1 Getting a set of working hydra executables. 
 #### Option one:  pre-compiled binary files
-There should be already a pre-compiled version of hydra with in the folder hydra-pm. We have tested the pre-compiled version on the following systems:
+There should be already a pre-compiled version of hydra with in the folder hydra-compiled. We have tested the pre-compiled version on the following systems:
 
  - Ubuntu 12.04/16.04
  - CentOS 6.5
