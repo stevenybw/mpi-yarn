@@ -82,9 +82,9 @@ CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 |-N  [int] |How many nodes should this job to use. Use in conjunction with -ppn   |
 |-ppn [int]   |How many process should run on a single node. Use in conjunction with -N   |
 | -so [path to .so files no.1],etc.   |.so files that the MPI executables needs in order for it to run on the nodes. Those files will be uploaded to every node. If the environment is the same on all the machines, there shouldn't be a need to use this.  |
-|-env [environment variable name no.1], etc.|environment variable names to pass|
+|-env [name=environment variable], [name=environment variable], etc. |If the MPI program requires additional environmental variables, use this argument to pass the name of the argument, and the intended value.|
 |-m [int]|The amount of memory that each container will take. The default value is set to be 2048 mb in **yrun**, but you can overwrite that value with this argument|
-|-sf [localpath:remotepath],etc.|If there are small input files/configuration files that the MPI executable relies on, you can use this argument to have that file(s) be uploaded to every node. Note: the remote path should be a relative path in relation to the MPI executable, and it cannot be outside of the temp folder that yarn creates. Larger input files should be uploaded onto HDFS, and the MPI executable should be altered to take the input file directly from HDFS.Currently this argument does not support uploading by folders|
+|-sf [localpath:remotepath],etc.|If there are small input files/configuration files that the MPI executable relies on, you can use this argument to upload to every node. The remote path should be a relative path to the MPI executable, and it cannot be outside of the temp folder that YARN creates. Larger input files should be uploaded onto HDFS, and the MPI executable should be altered to take the input file directly from HDFS. Currently this argument does not support uploading by folders|
 
 
 ----------
