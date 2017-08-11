@@ -88,7 +88,7 @@ CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 
 
 ----------
-For example, if I want to run **ls** on four node while uploading a small text file **config.txt**, this would be the command that I run:
+For example, if I want to run **ls** on four node while uploading a small text file **config.txt** that is in the **config** folder , this would be the command that I run:
 
 ```bash
 ./yrun -N 4 -ppn 1 -sf /home/TJGuo/config.txt:config/config.txt /bin/ls config/
