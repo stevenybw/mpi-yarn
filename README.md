@@ -31,6 +31,7 @@ mvn clean package
 You will see **./target/mpi-yarn-${VERSION}.jar**, which contains the client and application master on YARN. Next, you will have to compile the dependency—hydra-launcher, or use the pre-compiled version that we have provided. 
 
 ## 2. hydra launcher
+The application launches MPI grograms on the YARN cluster by using the HYDRA process manager, thus the user will be required to acquire a set of working hydra executables.
 ### 2.1 Getting a set of working hydra executables. 
 #### Option one:  pre-compiled binary files
 A pre-compiled version of hydra should be in the folder hydra-compiled. We have tested the pre-compiled version on the following systems:
