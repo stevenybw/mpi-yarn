@@ -5,7 +5,7 @@ A robust and lightweight application to launch MPI on YARN cluster
 
 ## Introduction
 
-MPI is widely used in HPC (High Performance Computing) community, which is often played as a key role in distributed computing program. Supercomputers often deploy slurm-like scheduler to manage computing resources. While traditional slurm-like scheduler is well supported in MPI, it does not support heterogeneous fine-grained scheduler like YARN directly. Sometimes we have to run MPI programs in data centers deploying YARN, as it is widely used in commercial data centers. MPI-YARN focuses on such requirement and provides support for running MPI programs in YARN-deployed data centers.
+MPI is widely used in the HPC (High Performance Computing) community, which is often plays a key role in distributed computing programs. Supercomputers often deploy slurm-like scheduler to manage computing resources. While traditional slurm-like scheduler is well supported in MPI, it does not support heterogeneous fine-grained scheduler like YARN directly. Sometimes we have to run MPI programs in data centers deploying YARN, as it is widely used in commercial data centers. MPI-YARN focuses on such requirement and provides support for running MPI programs in YARN-deployed data centers.
 
 ## 0. What you need to know before using mpi-yarn
  - You need maven for compiling mpi-yarn
@@ -33,7 +33,7 @@ You will see **./target/mpi-yarn-${VERSION}.jar**, which contains the client and
 ## 2. hydra launcher
 ### 2.1 Getting a set of working hydra executables. 
 #### Option one:  pre-compiled binary files
-There should be already a pre-compiled version of hydra with in the folder hydra-compiled. We have tested the pre-compiled version on the following systems:
+A pre-compiled version of hydra should be in the folder hydra-compiled. We have tested the pre-compiled version on the following systems:
 
  - Ubuntu 12.04/16.04
  - CentOS 6.5
@@ -54,7 +54,7 @@ make
 
 ### 2.2 Check the files.
 
-There will should several binary execuatables in in the folder, in which there are at least two required in next steps. They are **mpiexec.hydra** and **hydra_pmi_proxy** respectively.
+There should be several binary execuatables in the folder, of which at least two are required. They are **mpiexec.hydra** and **hydra_pmi_proxy** respectively.
 
 ## 3. Configuration
 
@@ -68,6 +68,7 @@ MPI_YARN_PREFIX = "/Users/ybw/OpenSourceCode/mpi_yarn" # change to absolute path
 MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar" # no need to change(In the future you might have to change the version number)
 CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 ```
+*Currently the wrapper does not support Python3
 
 # Using mpi-yarn
 ### 4.1 Submitting jobs through the wrapper
