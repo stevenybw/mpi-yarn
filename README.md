@@ -88,18 +88,17 @@ CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 
 
 ----------
-For example, if I want to run **ls** on four node while uploading a small text file **config.txt** that is in the **config** folder , this would be the command that I run:
+Here would be a example command running **ls**, using four node with one process on each node, uploading a .so file libc.so.6 which can be found at /lib/x86_64-linux-gnu/libc.so.6, setting the memory requirement to be 512mb, setting **PATH** on the nodes to be /home, and uploading a configuration file config.txt that is in the config folder:
 
 ```bash
-./yrun -N 4 -ppn 1 -sf /home/TJGuo/config.txt:config/config.txt /bin/ls config/
+./yrun -N 4 -ppn 1 -env PATH=/home -m 512 -so /lib/x86_64-linux-gnu/libc.so.6 -sf /home/TJGuo/config.txt:config/config.txt /bin/ls config/
 ```
-The output of this should be
+The output of this would be:
 ```bash
 config.txt
 config.txt
 config.txt
 config.txt
 ```
-，
-each line coming from one of the four nodes
+
 
