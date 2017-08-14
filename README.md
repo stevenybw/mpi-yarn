@@ -17,7 +17,7 @@ MPI is widely used in the HPC (High Performance Computing) community, which is o
 
 ```bash
 # clone source code of MPI-YARN
-git clone --recursive https://github.com/fma-cloud/mpi-yarn
+git clone --recursive https://github.com/fma-cloud/mpi-yarn.git
 ```
 
 ### 1.2 Compile
