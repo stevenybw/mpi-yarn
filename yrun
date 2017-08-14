@@ -18,7 +18,7 @@ HDFS_PREFIX = "hdfs://master:9000"
 MPI_YARN_PREFIX = "/home/yarnMPI/mpi-yarn"
 MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar"
 CONTAINER_MEMORY_MB = "2048"
-HYDRA_PREFIX = "/hydra_pm"
+HYDRA_PREFIX = "/hydra-pm"
 
 parser = argparse.ArgumentParser(description='MPI-YARN launcher.')
 parser.add_argument('-N', '--num-nodes', type=int, help='number of nodes')
