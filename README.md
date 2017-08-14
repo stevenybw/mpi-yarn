@@ -68,6 +68,7 @@ HDFS_PREFIX = "hdfs://localhost:9000" # change to your HDFS rpc port
 MPI_YARN_PREFIX = "/Users/ybw/OpenSourceCode/mpi_yarn" # change to absolute path of mpi-yarn
 MPI_YARN_JAR_NAME = "/target/mpi-yarn-1.0.0.jar" # no need to change(In the future you might have to change the version number)
 CONTAINER_MEMORY_MB = "2048" # memory in MB per container
+HYDRA_PREFIX = "/hydra_pm" #location of the HYDRA executables. For examile it would be /hydra_compile if using the pre-compiled version
 ```
 *Currently the wrapper does not support Python3
 
@@ -86,21 +87,4 @@ CONTAINER_MEMORY_MB = "2048" # memory in MB per container
 | -so [path to .so files no.1],etc.   |.so files that the MPI executables needs in order for it to run on the nodes. Those files will be uploaded to every node. If the environment is the same on all the machines, there shouldn't be a need to use this.  |
 |-env [name=environment variable], [name=environment variable], etc. |If the MPI program requires additional environmental variables, use this argument to pass the name of the argument, and the intended value.|
 |-m [int]|The amount of memory that each container will take. The default value is set to be 2048 mb in **yrun**, but you can overwrite that value with this argument|
-|-sf [localpath:remotepath],etc.|If there are small input files/configuration files that the MPI executable relies on, you can use this argument to upload to every node. The remote path should be a relative path to the MPI executable, and it cannot be outside of the temp folder that YARN creates. Larger input files should be uploaded onto HDFS, and the MPI executable should be altered to take the input file directly from HDFS. Currently this argument does not support uploading by folders|
-
-
-----------
-Here would be a example command running **ls**, using four node with one process on each node, uploading a .so file libc.so.6 which can be found at /lib/x86_64-linux-gnu/libc.so.6, setting the memory requirement to be 512mb, setting **PATH** on the nodes to be /home, and uploading a configuration file config.txt that is in the config folder:
-
-```bash
-./yrun -N 4 -ppn 1 -env PATH=/home -m 512 -so /lib/x86_64-linux-gnu/libc.so.6 -sf /home/TJGuo/config.txt:config/config.txt /bin/ls config/
-```
-The output of this would be:
-```bash
-config.txt
-config.txt
-config.txt
-config.txt
-```
-
-
+|-sf [localpath:remotepath],etc.|If there are small input files/configuration files that the MPI executable relies on, you can use this argument to upload to every node. The remote path should be a relative path to the MPI executable, and it cannot be outside of the temp folder that YARN creates. Larger i
