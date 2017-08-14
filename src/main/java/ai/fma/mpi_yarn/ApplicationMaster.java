@@ -258,8 +258,8 @@ public class ApplicationMaster {
 			Scanner mpirunEscanner;
 			{	
 				//System.out.println("CLASSPATH:" + System.getenv("CLASSPATH"));
-				//String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
-				String cmd = MessageFormat.format("./mytest.sh ./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+				String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
+				//String cmd = MessageFormat.format("./mytest.sh ./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
 				//String cmd = "/bin/echo CLASSPATH=$CLASSPATH";
 				System.out.println("invoke " + cmd);
 				ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
@@ -269,15 +269,15 @@ public class ApplicationMaster {
 				mpirunScanner = new Scanner(mpirunIstream);
 				mpirunEscanner = new Scanner(mpirunEstream);
 				
-				boolean debugDone = false;
-				while (!debugDone)
+				boolean debug = true;
+				while (!debug)
 				{
 					String line = mpirunScanner.nextLine();
 					clientPrintln(outputStream, "[AppMaster DEDBUG LOG] " + line);	
 					if(line.equals("==========Debug Done=========="))
 					{	
 						clientPrintln(outputStream, "[AppMaster DEDBUG LOG] Debug Done");
-						debugDone = true;
+						debug = true;
 					}
 				}
 				
