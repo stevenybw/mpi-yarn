@@ -41,7 +41,7 @@ if(args.num_nodes and args.procs_per_node):
 	ppn = args.procs_per_node
 	EXECUTABLE_PATH = args.executable[0]
 	cmd = "{HADOOP_PREFIX}/bin/hadoop jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} ai.fma.mpi_yarn.Client -q {QUEUE_NAME} -a {EXECUTABLE_PATH} -N {N} -ppn {ppn} -p {HDFS_PREFIX}/ -jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} -hydra {MPI_YARN_PREFIX}{HYDRA_PREFIX}"\
-		.format(HADOOP_PREFIX=HADOOP_PREFIX, HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME, EXECUTABLE_PATH=EXECUTABLE_PATH, N=N, ppn=ppn, QUEUE_NAME=QUEUE_NAME)
+		.format(HYDRA_PREFIX=HYDRA_PREFIX, HADOOP_PREFIX=HADOOP_PREFIX, HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME, EXECUTABLE_PATH=EXECUTABLE_PATH, N=N, ppn=ppn, QUEUE_NAME=QUEUE_NAME)
 	if(len(args.executable) > 1):
 		cmd = cmd + " -args \"" + " ".join(args.executable[1:]) + "\""
 	if(args.so and len(args.so) > 0):
@@ -59,7 +59,7 @@ elif(args.num_procs):
 	n = args.num_procs
 	EXECUTABLE_PATH = args.executable[0]
 	cmd = "{HADOOP_PREFIX}/bin/hadoop jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} ai.fma.mpi_yarn.Client -q {QUEUE_NAME} -a {EXECUTABLE_PATH} -n {n} -p {HDFS_PREFIX}/ -jar {MPI_YARN_PREFIX}/{MPI_YARN_JAR_NAME} -hydra {MPI_YARN_PREFIX}{HYDRA_PREFIX}"\
-		.format(HADOOP_PREFIX=HADOOP_PREFIX, HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME, EXECUTABLE_PATH=EXECUTABLE_PATH, n=n, QUEUE_NAME=QUEUE_NAME)
+		.format(HYDRA_PREFIX=HYDRA_PREFIX, HADOOP_PREFIX=HADOOP_PREFIX, HDFS_PREFIX=HDFS_PREFIX, MPI_YARN_PREFIX=MPI_YARN_PREFIX, MPI_YARN_JAR_NAME=MPI_YARN_JAR_NAME, EXECUTABLE_PATH=EXECUTABLE_PATH, n=n, QUEUE_NAME=QUEUE_NAME)
 	if(len(args.executable) > 1):
 		cmd = cmd + " -args \"" + " ".join(args.executable[1:]) + "\""
 	if(args.so and len(args.so) > 0):
