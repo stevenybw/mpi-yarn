@@ -68,8 +68,8 @@ elif(args.num_procs):
 		cmd = cmd + " -envlist " + ",".join(args.env)
 	if(args.m):
 		cmd = cmd + " -m " + str(args.m)
-        if(args.sf and len(args.sf) > 0):
-                cmd = cmd + " -sf " + str(args.sf)
+		if(args.sf and len(args.sf) > 0):
+			cmd = cmd + " -sf " + str(args.sf)
 	print(cmd)
 	os.system(cmd)
 
