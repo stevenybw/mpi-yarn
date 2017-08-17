@@ -94,12 +94,10 @@ HYDRA_PREFIX = "/hydra_pm" #location of the HYDRA executables. For examile it wo
  ```bash
  ./yrun -N 4 -ppn 1 -env PATH=/home -m 512 -so /lib/x86_64-linux-gnu/libc.so.6 -sf /home/TJGuo/config.txt:config/config.txt /bin/ls config/
  ```
- The output of this would be:
+ The output of this, without all the debug information, would be:
  ```bash
  config.txt
  config.txt
  config.txt
  config.txt
  ```
- -
- -
