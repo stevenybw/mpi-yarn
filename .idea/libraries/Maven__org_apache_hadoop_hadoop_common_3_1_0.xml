@@ -1,0 +1,16 @@
+<component name="libraryTable">
+  <library name="Maven: org.apache.hadoop:hadoop-common:3.1.0">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/hadoop/hadoop-common/3.1.0/hadoop-common-3.1.0.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/hadoop/hadoop-common/3.1.0/hadoop-common-3.1.0-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/hadoop/hadoop-common/3.1.0/hadoop-common-3.1.0-sources.jar!/" />
+      <root url="file://$PROJECT_DIR$/../hadoop-3.1.0-src/hadoop-common-project/hadoop-common/dev-support/jdiff" />
+      <root url="file://$PROJECT_DIR$/../hadoop-3.1.0-src/hadoop-common-project/hadoop-common/src/main/java" />
+      <root url="file://$PROJECT_DIR$/../hadoop-3.1.0-src/hadoop-common-project/hadoop-common/src/test/java" />
+    </SOURCES>
+  </library>
+</component>

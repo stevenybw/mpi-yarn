@@ -2,17 +2,13 @@ package ai.fma.mpi_yarn;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Scanner;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.*;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.hadoop.conf.Configuration;
+import ai.fma.mpi_yarn.launcher.LauncherProcess;
+import ai.fma.mpi_yarn.launcher.OrteLauncherProcess;
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -29,10 +25,25 @@ import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.client.api.AMRMClient;
 import org.apache.hadoop.yarn.client.api.AMRMClient.ContainerRequest;
 import org.apache.hadoop.yarn.client.api.NMClient;
-import org.apache.hadoop.yarn.conf.YarnConfiguration;
+import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.util.Records;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ApplicationMaster {
+	private String hostname;
+	private int responseId = 0;
+
+	{
+		try {
+			hostname = InetAddress.getLocalHost().getHostName();
+		} catch (UnknownHostException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private static Logger logger = LoggerFactory.getLogger(ApplicationMaster.class);
+
 	public static void clientPrint(FSDataOutputStream outputStream, String mesg) throws IOException {
 		System.out.print(mesg);
 		outputStream.writeBytes(mesg);
@@ -46,344 +57,253 @@ public class ApplicationMaster {
 	}
 
 	public static void main(String[] args) throws Exception {
-		System.out.println("AM Start");
+		logger.debug("Application Master Start");
 
-		// Initialize clients to ResourceManager and NodeManagers
-		Configuration conf = new YarnConfiguration();
+		ApplicationMaster appMaster = new ApplicationMaster();
 
-		FileSystem dfs = FileSystem.get(conf);
-		MyConf myConf = MyConf.deserialize(System.getenv(MyConf.EnvName));
-		String hdfsPrefix = myConf.getHdfsPrefix();
-		int responseId = 0;
-
-		System.out.println("append output into " + myConf.getOutputPath());
-		Path outputPath = new Path(myConf.getOutputPath());
-		FSDataOutputStream outputStream = dfs.create(outputPath);
+		MyConf myConf = MyConf.deserialize(System.getenv(MyConf.MY_CONF_SERIALIZED));
+		FileSystem dfs = myConf.getFileSystem();
+		logger.debug("  output path = " + myConf.getOutputPath());
+		FSDataOutputStream outputStream = dfs.create(new Path(myConf.getOutputPath()));
 
 		AMRMClient<ContainerRequest> rmClient = AMRMClient.createAMRMClient();
-		rmClient.init(conf);
+		rmClient.init(myConf.getYarnConfiguration());
 		rmClient.start();
 
 		NMClient nmClient = NMClient.createNMClient();
-		nmClient.init(conf);
+		nmClient.init(myConf.getYarnConfiguration());
 		nmClient.start();
 
 		// Register with ResourceManager
-		System.out.println("registerApplicationMaster 0");
 		rmClient.registerApplicationMaster("", 0, "");
-		System.out.println("registerApplicationMaster 1");
-
-		// Priority for worker containers - priorities are intra-application
-		Priority priority = Records.newRecord(Priority.class);
-		priority.setPriority(0);
+		logger.debug("Registered Application Master");
 
 		ArrayList<Container> containers = new ArrayList<Container>();
-		HashMap<String, ArrayList<Container>> hostContainers = new HashMap<String, ArrayList<Container>>();
+		HashMap<String, Container> deamonHostContainer = new HashMap<String, Container>();
+		Resource deamonResource = getDeamonResourceRequired(myConf);
+		int priority = 0;
 
-		if (myConf.getLocalityType() == LocalityType.NONE) {
-			int n = myConf.getNumProcs();
-			System.out.println("request " + String.valueOf(n) + " container; container memory = "
-					+ String.valueOf(myConf.getContainerMemoryMb()) + "MB");
-			// Resource requirements for worker containers
-			Resource capability = Records.newRecord(Resource.class);
-			capability.setMemory(myConf.getContainerMemoryMb());
-			capability.setVirtualCores(1);
-
-			// Make container requests to ResourceManager
-			for (int i = 0; i < n; ++i) {
-				ContainerRequest containerAsk = new ContainerRequest(capability, null, null, priority);
-				System.out.println("Making res-req " + i);
-				rmClient.addContainerRequest(containerAsk);
-			}
-
-			// Obtain allocated containers
-			int tempCount = 0;
-			while (containers.size() < n) {
-				AllocateResponse response = rmClient.allocate(responseId++);
-				for (Container container : response.getAllocatedContainers()) {
-					NodeId nodeId = container.getNodeId();
-					String host = nodeId.getHost();
-					System.out.println("Acquired container " + container.getId() + " at host " + host);
-					containers.add(container);
-					if (!hostContainers.containsKey(host)) {
-						hostContainers.put(host, new ArrayList<Container>());
-					}
-					hostContainers.get(host).add(container);
-				}
-				System.out.println("Wait for next container, sleep for 100 ms. Already has  " + containers.size() + "containers." + "This message has been printed" + tempCount + "times.");
-				tempCount++;
-				Thread.sleep(100);
-			}
-			System.out.println("Done acquiring containers");
-		} else if (myConf.getLocalityType() == LocalityType.GROUP) {
-			int N = myConf.getNumNodes();
-			int ppn = myConf.getNumProcsPerNode();
-			System.out.println("request " + N + " groups; each group has " + ppn + " containers; container memory = "
-					+ String.valueOf(myConf.getContainerMemoryMb()));
-			// Resource requirement is the same as above
-			Resource capability = Records.newRecord(Resource.class);
-			capability.setMemory(myConf.getContainerMemoryMb());
-			capability.setVirtualCores(1);
-
-			// acquired group is a group which has more than ppn nodes
-			int numAcquiredGroup = 0;
-
-			// request one container at a time, until we have enough groups
-			while (numAcquiredGroup < N) {
-				ContainerRequest containerAsk = new ContainerRequest(capability, null, null, priority);
-				rmClient.addContainerRequest(containerAsk);
-
-				// wait for one container
-				while (true) {
-					AllocateResponse response = rmClient.allocate(responseId++);
-					if (response.getAllocatedContainers().size() > 0) {
-						Container container = response.getAllocatedContainers().get(0);
-						NodeId nodeId = container.getNodeId();
-						String host = nodeId.getHost();
-						System.out.println("Acquired container " + container.getId() + " at host " + host);
-						if (!hostContainers.containsKey(host)) {
-							hostContainers.put(host, new ArrayList<Container>());
-						}
-						hostContainers.get(host).add(container);
-						if (hostContainers.get(host).size() == ppn) {
-							numAcquiredGroup++;
-						}
-						break;
-					}
-				}
-			}
-
-			{
-				ArrayList<Container> redundantContainers = new ArrayList<Container>();
-
-				// find the redundant containers & update containers
-				for (String host : hostContainers.keySet()) {
-					ArrayList<Container> Cs = hostContainers.get(host);
-					if (Cs.size() < ppn) {
-						redundantContainers.addAll(Cs);
-						hostContainers.remove(host);
-					} else {
-						for (int i = 0; i < (Cs.size() - ppn); i++) {
-							redundantContainers.add(Cs.remove(0));
-						}
-						containers.addAll(Cs);
-					}
-				}
-
-				// release the redundant containers
-				for (Container container : redundantContainers) {
-					System.out.println("Releasing redundant container " + container.getId());
-					rmClient.releaseAssignedContainer(container.getId());
-				}
-			}
+		// AM is an implicit deamon in ORTE
+		HashSet<String> exceptHosts = new HashSet<String>();
+		if (myConf.getLauncherType() == MyConf.LAUNCHER_TYPE_ORTE) {
+			exceptHosts.add(appMaster.hostname);
 		}
+		appMaster.acquireContainersDistinctHost(rmClient, myConf.getNumDeamons(), deamonResource, priority, exceptHosts, deamonHostContainer);
 
-		clientPrintln(outputStream, "acquired node list: ");
-		for (String host : hostContainers.keySet()) {
-			clientPrintln(outputStream, "   " + host + ":" + hostContainers.get(host).size());
-		}
+		int num_nodes = myConf.getNumNodes();
+		int ppn = myConf.getNumProcsPerNode();
 
-		Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
-		{
-			Path executablePath = new Path(hdfsPrefix + "/" + myConf.getExecutableName());
-			LocalResource executableResource = Records.newRecord(LocalResource.class);
-			MyConf.setupLocalResource(dfs, executablePath, executableResource);
-			localResources.put(executablePath.getName(), executableResource);
-		}
-		{
-			Path pmiProxyPath = new Path(hdfsPrefix + "/" + MyConf.PMI_PROXY);
-			LocalResource pmiProxyResource = Records.newRecord(LocalResource.class);
-			MyConf.setupLocalResource(dfs, pmiProxyPath, pmiProxyResource);
-			localResources.put(pmiProxyPath.getName(), pmiProxyResource);
-		}
-		
-		{
-			Path testPath = new Path(MyConf.testSS);
-			LocalResource testResource = Records.newRecord(LocalResource.class);
-			MyConf.setupLocalResource(dfs, testPath, testResource);
-			localResources.put(testPath.getName(), testResource);
-		}
-		for (int k = 0; k < myConf.getLocalPathSF().size();k++) {
-		//-----WIP-----
-			Path target = new Path(hdfsPrefix + "/sf/" + myConf.getRemotePathSF().get(k));
-			LocalResource sfResource = Records.newRecord(LocalResource.class);
-			MyConf.setupLocalResource(dfs, target, sfResource);
-			localResources.put(myConf.getRemotePathSF().get(k), sfResource);
-		}
-		for (String sofile : myConf.getSharedObjectPathList()) {
-			Path src = new Path(sofile);
-			Path target = new Path(hdfsPrefix + "/sofiles/" + src.getName());
-			LocalResource soResource = Records.newRecord(LocalResource.class);
-			MyConf.setupLocalResource(dfs, target, soResource);
-			localResources.put(target.getName(), soResource);
-		}
+		logger.debug("Requesting resources");
+		logger.debug("amHostName = " + appMaster.hostname);
+		logger.debug("num_nodes = " + num_nodes);
+		logger.debug("num_deamons = " + myConf.getNumDeamons());
+		logger.debug("nprocs_per_node = " + ppn);
+
+		clientPrintln(outputStream, "acquired container list: [" + String.join(",", deamonHostContainer.keySet()) + "]");
+
+		// specify local resources in distributed cache
+		Map<String, LocalResource> localResources = myConf.createDeamonLocalResources();
+
+		// setting required environment variables
 		Map<String, String> containerEnv = new HashMap<String, String>();
-		for (String envName : System.getenv().keySet()) {
-			if (myConf.getEnvHomeList().contains(envName)) {
-				containerEnv.put(envName, System.getenv(envName));
-			}
-		}
-		String ldLibraryPath = containerEnv.get("LD_LIBRARY_PATH");
-		if (ldLibraryPath == null) {
-			ldLibraryPath = "./sofiles";
+		setDeamonContainerEnv(myConf, containerEnv);
+
+//		ArrayList<Container> containerSequence = new ArrayList<Container>();
+//		StringBuilder hostSb = new StringBuilder();
+//		{
+//			boolean first = true;
+//			for (String host : hostContainers.keySet()) {
+//				for (Container container : hostContainers.get(host)) {
+//					if (first) {
+//						first = false;
+//					} else {
+//						hostSb.append(",");
+//					}
+//					hostSb.append(host);
+//					containerSequence.add(container);
+//				}
+//			}
+//		}
+
+		// run the launcher process
+		LauncherProcess launcher_process;
+		if (myConf.getLauncherType() == MyConf.LAUNCHER_TYPE_HYDRA) {
+			throw new NotImplementedException("Not implemented");
+			// launcher_process = new HydraLauncherProcess(myConf, deamonHostContainer.keySet(), ppn);
+		} else if (myConf.getLauncherType() == MyConf.LAUNCHER_TYPE_ORTE) {
+			launcher_process = new OrteLauncherProcess(myConf, deamonHostContainer.keySet(), ppn);
 		} else {
-			ldLibraryPath = "../sofiles:" + ldLibraryPath;
-		}
-		containerEnv.put("LD_LIBRARY_PATH", ldLibraryPath);
-		System.out.println("=== Environment ===");
-		System.out.println(containerEnv);
-		System.out.println("===================");
-
-		ArrayList<Container> containerSequence = new ArrayList<Container>();
-		StringBuilder hostSb = new StringBuilder();
-		{
-			boolean first = true;
-			for (String host : hostContainers.keySet()) {
-				for (Container container : hostContainers.get(host)) {
-					if (first) {
-						first = false;
-					} else {
-						hostSb.append(",");
-					}
-					hostSb.append(host);
-					containerSequence.add(container);
-				}
-			}
+			throw new IllegalArgumentException("Unknown launcher type");
 		}
 
-		try {
-			InputStream mpirunIstream;
-			InputStream mpirunEstream;
-			Scanner mpirunScanner;
-			Scanner mpirunEscanner;
-			{	
-				//System.out.println("CLASSPATH:" + System.getenv("CLASSPATH"));
-				String cmd = MessageFormat.format("./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
-				//String cmd = MessageFormat.format("./mytest.sh ./{0} -launcher manual -ppn 1 -hosts {1} ./{2} {3}", MyConf.MPIEXEC,hostSb.toString(), myConf.getExecutableName(), myConf.getExecutableArgs());
-				//String cmd = "/bin/echo CLASSPATH=$CLASSPATH";
-				System.out.println("invoke " + cmd);
-				ProcessBuilder pb = new ProcessBuilder(cmd.split("\\s"));
-				Process p = pb.start();
-				mpirunIstream = p.getInputStream();
-				mpirunEstream = p.getErrorStream();
-				mpirunScanner = new Scanner(mpirunIstream);
-				mpirunEscanner = new Scanner(mpirunEstream);
-				
-				boolean debug = true;
-				while (!debug)
-				{
-					String line = mpirunScanner.nextLine();
-					clientPrintln(outputStream, "[AppMaster DEDBUG LOG] " + line);	
-					if(line.equals("==========Debug Done=========="))
-					{	
-						clientPrintln(outputStream, "[AppMaster DEDBUG LOG] Debug Done");
-						debug = true;
-					}
-				}
-				
-				for (Container container : containerSequence) {
-					String line = mpirunScanner.nextLine();
-					//clientPrintln(outputStream, "[Container starting] " + line);
-					// HYDRA_LAUNCH:
-					// /Users/ybw/local/mpich-3.2/bin/hydra_pmi_proxy
-					// --control-port 172.23.100.68:58247 --rmk user --launcher
-					// manual --demux poll --pgid 0 --retries 10 --usize -2
-					// --proxy-id 0
-					String[] sp = line.split(" ");
-					//System.out.println("SP length: " + sp.length + "\nSP: " + line + "\n");
-					String[] sub_sp = Arrays.copyOfRange(sp, 2, sp.length);
-					String container_cmd = "./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
-					//String container_cmd = "./mytest.sh ./" + MyConf.PMI_PROXY + " " + StringUtils.join(sub_sp, " ");
-					ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
-					ctx.setLocalResources(localResources);
-					ArrayList<String> commands = new ArrayList<String>();
-					commands.add(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
-							+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
-					// commands.add("echo ContainerFinished!");
-					ctx.setCommands(commands);
-					ctx.setEnvironment(containerEnv);
-					nmClient.startContainer(container, ctx);
-					System.out.println("Launching container " + container.getId() + " with cmd " + container_cmd);
-				}
-				{
-					String nextLine = mpirunScanner.nextLine();
-					if (!nextLine.startsWith("HYDRA_LAUNCH_END")) {
-						throw new RuntimeException("Not Start With HYDRA_LAUNCH_END, but " + nextLine);
-					}
-				}
-			}
-			clientPrintln(outputStream,"DEBUG STATE: All containers are started");
-			// Wait for containers
-			int bufferBytes = 4096;
-			byte[] buffer = new byte[bufferBytes];
-			int completedContainers = 0;
-			boolean iStreamClosed = false;
-			boolean eStreamClosed = false;
-			while (completedContainers < containers.size()) {
-				AllocateResponse response = rmClient.allocate(responseId++);
-				for (ContainerStatus status : response.getCompletedContainersStatuses()) {
-					++completedContainers;
-					if (status.getExitStatus() != 0) {
-						clientPrintln(outputStream, "Completed container " + status.getContainerId()
-								+ " with exit code " + status.getExitStatus());
-					} else {
-						System.out.println("Completed container " + status.getContainerId() + " with exit code "
-								+ status.getExitStatus());
-					}
-				}
-				if (mpirunIstream.available() > 0) {
-					int bytes = mpirunIstream.read(buffer, 0, bufferBytes);
-					if (bytes == -1) {
-						iStreamClosed = true;
-					} else {
-						String next = new String(buffer, 0, bytes);
-						clientPrint(outputStream, next);
-					}
-				}
-				if (mpirunEstream.available() > 0) {
-					int bytes = mpirunEstream.read(buffer, 0, bufferBytes);
-					if (bytes == -1) {
-						eStreamClosed = true;
-					} else {
-						String next = new String(buffer, 0, bytes);
-						clientPrint(outputStream, next);
-					}
-				}
-				Thread.sleep(100);
-			}
-			clientPrintln(outputStream,"DEBUG STATE: 2");
-			{
-				int bytes = 0;
-				while (!iStreamClosed) {
-					bytes = mpirunIstream.read(buffer, 0, bufferBytes);
-					if (bytes == -1) {
-						iStreamClosed = true;
-					} else {
-						String next = new String(buffer, 0, bytes);
-						clientPrint(outputStream, next);
-					}
-				}
-			}
-			clientPrintln(outputStream,"DEBUG STATE: 3");
-			{
-				int bytes = 0;
-				while (!eStreamClosed) {
-					bytes = mpirunEstream.read(buffer, 0, bufferBytes);
-					if (bytes == -1) {
-						eStreamClosed = true;
-					} else {
-						String next = new String(buffer, 0, bytes);
-						clientPrint(outputStream, next);
-					}
-				}
-			}
-			clientPrintln(outputStream,"DEBUG STATE: 4");
-		} catch (Exception e) {
-			System.out.println(e.getClass().getCanonicalName()  + ": " + e.getMessage());
-			e.printStackTrace(System.out);
-			throw new RuntimeException();
+		Map<String, String> deamonHostCommand = launcher_process.getDeamonHostCommand(myConf);
+
+		// submit the deamons
+		for(String host : deamonHostContainer.keySet()) {
+			Container container = deamonHostContainer.get(host);
+			String deamon_commands = deamonHostCommand.get(host);
+			submitToContainer(nmClient, deamon_commands, localResources, containerEnv, container);
 		}
+
+		// polling the stdout of launcher process into specified output stream
+		appMaster.waitForCompletion(rmClient, deamonHostContainer.size(), launcher_process, outputStream);
+
 		// Un-register with ResourceManager
 		rmClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "", "");
 	}
+
+	// wait for the completion of launcher process and write its stdout, stderr into specified outputStream
+	private void waitForCompletion(AMRMClient<ContainerRequest> rmClient, int numContainers, LauncherProcess launcher_process, FSDataOutputStream outputStream) throws IOException, YarnException, InterruptedException {
+		logger.debug("Waiting for completion of the launcher and all the containers");
+		InputStream mpirunIstream = launcher_process.getInputStream();
+		InputStream mpirunEstream = launcher_process.getErrorStream();
+		// Scanner mpirunScanner = new Scanner(mpirunIstream);
+		// Scanner mpirunEscanner = new Scanner(mpirunEstream);
+
+		int bufferBytes = 4096;
+		byte[] buffer = new byte[bufferBytes];
+		int completedContainers = 0;
+		boolean iStreamClosed = false;
+		boolean eStreamClosed = false;
+		while (completedContainers < numContainers) {
+			AllocateResponse response = rmClient.allocate(responseId++);
+			for (ContainerStatus status : response.getCompletedContainersStatuses()) {
+				++completedContainers;
+				if (status.getExitStatus() != 0) {
+					clientPrintln(outputStream, "Completed container with non-zero exit code " + status.getContainerId()
+							+ " with exit code " + status.getExitStatus());
+				} else {
+					logger.debug("Completed container " + status.getContainerId() + " with exit code "
+							+ status.getExitStatus());
+				}
+			}
+			if (mpirunIstream.available() > 0) {
+				int bytes = mpirunIstream.read(buffer, 0, bufferBytes);
+				if (bytes == -1) {
+					iStreamClosed = true;
+				} else {
+					String next = new String(buffer, 0, bytes);
+					clientPrint(outputStream, next);
+				}
+			}
+			if (mpirunEstream.available() > 0) {
+				int bytes = mpirunEstream.read(buffer, 0, bufferBytes);
+				if (bytes == -1) {
+					eStreamClosed = true;
+				} else {
+					String next = new String(buffer, 0, bytes);
+					clientPrint(outputStream, next);
+				}
+			}
+			Thread.sleep(MyConf.SLEEP_INTERVAL_MS);
+		}
+		logger.debug("Draining the stdout of launcher");
+		{
+			int bytes = 0;
+			while (!iStreamClosed) {
+				bytes = mpirunIstream.read(buffer, 0, bufferBytes);
+				if (bytes == -1) {
+					iStreamClosed = true;
+				} else {
+					String next = new String(buffer, 0, bytes);
+					clientPrint(outputStream, next);
+				}
+			}
+		}
+		logger.debug("Draining the stderr of launcher");
+		{
+			int bytes = 0;
+			while (!eStreamClosed) {
+				bytes = mpirunEstream.read(buffer, 0, bufferBytes);
+				if (bytes == -1) {
+					eStreamClosed = true;
+				} else {
+					String next = new String(buffer, 0, bytes);
+					clientPrint(outputStream, next);
+				}
+			}
+		}
+	}
+
+	// submit container_cmd to the container
+	private static void submitToContainer(NMClient nmClient, String container_cmd, Map<String, LocalResource> localResources, Map<String, String> containerEnv, Container container) throws IOException, YarnException {
+		logger.debug(String.format("Launching container %s (%s)", container.getId(), container_cmd));
+		ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
+		ctx.setLocalResources(localResources);
+		ArrayList<String> commands = new ArrayList<String>();
+		commands.add(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
+				+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
+		// commands.add("echo ContainerFinished!");
+		ctx.setCommands(commands);
+		ctx.setEnvironment(containerEnv);
+		nmClient.startContainer(container, ctx);
+	}
+
+	// acquire specified number of containers with specified resource and priority to deamonHostContainer with distinct hosts and except exceptHosts
+	private void acquireContainersDistinctHost(AMRMClient<ContainerRequest> rmClient, int numContainers, Resource resource, int priority_num, Set<String> exceptHosts, HashMap<String, Container> deamonHostContainer) throws IOException, YarnException {
+		// Priority for worker containers - priorities are intra-application
+		Priority priority = Records.newRecord(Priority.class);
+		priority.setPriority(priority_num);
+		while (deamonHostContainer.size() < numContainers) {
+			ContainerRequest containerReq = new ContainerRequest(resource, null, null, priority);
+			rmClient.addContainerRequest(containerReq);
+			while (true) {
+				AllocateResponse response = rmClient.allocate(responseId++);
+				if (response.getAllocatedContainers().size() > 0) {
+					Container container = response.getAllocatedContainers().get(0);
+					NodeId nodeId = container.getNodeId();
+					String host = nodeId.getHost();
+					if (!deamonHostContainer.containsKey(host) && !exceptHosts.contains(host)) {
+						deamonHostContainer.put(host, container);
+						logger.debug("acquired a container from host " + host);
+						break;
+					} else {
+						rmClient.releaseAssignedContainer(container.getId());
+						logger.debug("ignored a duplicate container from host " + host);
+					}
+				}
+			}
+		}
+	}
+
+	// get required Resource from configuration
+	private static Resource getDeamonResourceRequired(MyConf myConf) {
+		Resource resource = Records.newRecord(Resource.class);
+		int vcores_per_node = myConf.getVCoresPerNode();
+		long mb_memory_per_node = myConf.getMemoryMbPerNode();
+		long mb_nvdimm_per_node = myConf.getNvdimmMbPerNode();
+		logger.debug("Deamon Container Resource");
+		logger.debug("  vcores_per_node = " + vcores_per_node);
+		logger.debug("  mb_memory_per_node = " + mb_memory_per_node);
+		logger.debug("  mb_nvdimm_per_node = " + mb_nvdimm_per_node);
+		resource.setVirtualCores(vcores_per_node);
+		resource.setMemorySize(mb_memory_per_node);
+		resource.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, mb_nvdimm_per_node);
+		return resource;
+	}
+
+	// set environment variable for daemon
+	//   1. User required
+	//   2. LD_LIBRARY_PATH
+	private static void setDeamonContainerEnv(MyConf myConf, Map<String, String> containerEnv) {
+		// set required variable
+		for (String envName : System.getenv().keySet()) {
+			if (myConf.getEnvKeys().contains(envName)) {
+				containerEnv.put(envName, System.getenv(envName));
+			}
+		}
+		// set LD_LIBRARY_PATH for shared objects
+		String ldLibraryPath = containerEnv.get("LD_LIBRARY_PATH");
+		if (ldLibraryPath == null) {
+			ldLibraryPath = ".";
+		} else {
+			ldLibraryPath = ".:" + ldLibraryPath;
+		}
+		containerEnv.put("LD_LIBRARY_PATH", ldLibraryPath);
+		logger.debug("[Environment Variable for Launcher and Deamons]");
+		for (String key : containerEnv.keySet()) {
+			logger.debug(key + " = " + containerEnv.get(key));
+		}
+	}
+
 }
