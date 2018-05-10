@@ -24,6 +24,7 @@ import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.api.records.LocalResourceType;
 import org.apache.hadoop.yarn.api.records.LocalResourceVisibility;
+import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.Records;
@@ -32,11 +33,15 @@ import org.slf4j.LoggerFactory;
 
 public class MyConf implements Serializable {
 	private static final String LOCALIZED_CONF_DIR = "__mpi_yarn_conf__";
-	Logger logger = LoggerFactory.getLogger(MyConf.class);
+	private static final Logger logger = LoggerFactory.getLogger(MyConf.class);
+	public static final String SPLIT_SPACE = "\\s+";
+
+	transient public YarnConfiguration yarnConfiguration = new YarnConfiguration();
+	transient private FileSystem fileSystem = FileSystem.get(yarnConfiguration);
 
 	public static final int LAUNCHER_TYPE_HYDRA = 1;
 	public static final int LAUNCHER_TYPE_ORTE = 2;
-	public static final long SLEEP_INTERVAL_MS = 100;
+	public static final long SLEEP_INTERVAL_MS = 200;
 	public static String testSS = "mytest.sh";
 	public static String NVDIMM_RESOURCE_NAME = "nvdimm";
 
@@ -45,69 +50,46 @@ public class MyConf implements Serializable {
 	private String proxyClientPath;
 	private String launcherClientPath;
 
-	// Hydra-related Configuration
-	public String getHydraMpiexec() {
-		return hydraLauncherPath;
-	}
-	public String getHydraProxy() {
-		return hydraDeamonPath;
-	}
+	// Memory required by AM alone
+	private long amMemoryMb;
 
 	public static String serialize(MyConf conf) {
 		byte[] data = SerializationUtils.serialize(conf);
 		return Base64.encodeBase64String(data);
 	}
 
-	public static MyConf deserialize(String base64String) {
+	public static MyConf deserialize(String base64String) throws IOException {
 		byte[] data = Base64.decodeBase64(base64String);
-		return (MyConf) SerializationUtils.deserialize(data);
+		MyConf myConf = (MyConf) SerializationUtils.deserialize(data);
+		myConf.yarnConfiguration = new YarnConfiguration();
+		myConf.fileSystem = FileSystem.get(myConf.yarnConfiguration);
+		return myConf;
 	}
-
-	public YarnConfiguration yarnConfiguration = new YarnConfiguration();
-	private FileSystem fileSystem = FileSystem.get(yarnConfiguration);
 
 	public String getQueueName() {
 		return queueName;
 	}
-	public long getAMResourceMemoryMb() {
-		if (getLauncherType() == LAUNCHER_TYPE_HYDRA) {
-			return amMemoryMb;
-		} else {
-			return amMemoryMb + memoryMbPerNode;
-		}
-	}
-	// the memory MB of the java part of application master
+
+	/**
+	 * Return memory required by the java part of Application Master in MB
+	 */
 	public long getAMJavaMemoryMb() { return amMemoryMb; }
+
 	public Date getNow() { return now; }
 	public String getHdfsPrefix() {
 		return hdfsPrefix;
 	}
-	public HashSet<String> getEnvList() {
-		return envList;
-	}
-	public String getExecutablePath() {
-		return executablePath;
-	}
 	public String getExecutableArgs() {
 		return executableArgs;
 	}
-	public File getExecutableFile() {
-		return executableFile;
-	}
 	public String getOutputPath() {
 		return outputPath;
-	}
-	public int getNumProcs() {
-		return numProcs;
 	}
 	public int getNumNodes() {
 		return numNodes;
 	}
 	public int getNumProcsPerNode() {
-		return numProcsPerNode;
-	}
-	public String getContainingJar() {
-		return containingJar;
+		return procsPerNode;
 	}
 	public HashMap<String, String> getSharedObjects() { return sharedObjects; }
 	public HashMap<String, String> getAdditionalResource() { return additionalResources; }
@@ -120,8 +102,6 @@ public class MyConf implements Serializable {
 
 	private Date now;
 	private String hdfsPrefix;
-	private String hydraDeamonPath;
-	private String hydraLauncherPath;
 
 	private List<String> envKeys;
 	private List<String> envValues;
@@ -139,9 +119,6 @@ public class MyConf implements Serializable {
 
 	// MB memory for each node
 	private long memoryMbPerNode;
-
-	// MB memory for Application Master
-	private long memoryAM;
 
 	// Number of vCore for each node
 	private int vCoresPerNode;
@@ -161,15 +138,16 @@ public class MyConf implements Serializable {
 	// Additional resources: name -> hdfsPath
 	private HashMap<String, String> additionalResources;
 
-	MyConf(String[] args, GetNewApplicationResponse getNewApplicationResponse) throws IOException {
+	MyConf(String[] args) throws IOException {
 		now = new Date();
 
 		Options options = new Options();
 		addOption(options, true, "a", "application", true, "Path to the MPI executable");
 		addOption(options, true, "j", "jar", true, "The path to MPI-YARN jar file");
 		addOption(options, true, "p", "prefix", true, "HDFS prefix");
-		addOption(options, true, "hd","path_hydra_pmi_proxy", true, "Path to hydra process manager deamon");
-		addOption(options, true, "hl", "path_mpiexec_hydra", true, "Path to hydra launcher");
+		addOption(options, true, "lt","launcher_type", true, "Launcher type (hydra/orte)");
+		addOption(options, true, "dp","deamon_path", true, "Path to the launcher deamon");
+		addOption(options, true, "lp", "launcher_path", true, "Path to launcher");
 		addOption(options, true, "N", "num_nodes", true, "Total number of nodes");
 		addOption(options, true, "ppn", "processes_per_node", true, "Number of processes to launch per node");
 		addOption(options, true, "vcpn", "vcores_per_node", true, "Number of vcores per node");
@@ -194,26 +172,39 @@ public class MyConf implements Serializable {
 			return;
 		}
 		// process
-		executablePath = cmd.getOptionValue("a");
-		assertPathExist(executablePath);
-		containingJar = cmd.getOptionValue("j");
-		assertPathExist(containingJar);
+		executableClientPath = cmd.getOptionValue("a");
+		assertPathExist(executableClientPath);
+		containingJarClientPath = cmd.getOptionValue("j");
+		assertPathExist(containingJarClientPath);
 		queueName = getOptionValue(cmd, "q", "default");
 		hdfsPrefix = cmd.getOptionValue("p");
-		hydraDeamonPath = cmd.getOptionValue("hd");
-		assertPathExist(hydraDeamonPath);
-		hydraLauncherPath = cmd.getOptionValue("hl");
-		assertPathExist(hydraLauncherPath);
+		String launcherTypeStr = cmd.getOptionValue("lt");
+		switch (launcherTypeStr.toLowerCase()) {
+			case "hydra":
+				launcherType = LAUNCHER_TYPE_HYDRA;
+				break;
+			case "orte":
+				launcherType = LAUNCHER_TYPE_ORTE;
+				break;
+			default:
+				assert (false);
+				break;
+		}
+		proxyClientPath = cmd.getOptionValue("dp");
+		assertPathExist(proxyClientPath);
+		launcherClientPath = cmd.getOptionValue("lp");
+		assertPathExist(launcherClientPath);
 		numNodes = Integer.valueOf(cmd.getOptionValue("N"));
 		procsPerNode = Integer.valueOf(cmd.getOptionValue("ppn"));
 		vCoresPerNode = Integer.valueOf(cmd.getOptionValue("vcpn"));
 		memoryMbPerNode = Long.valueOf(cmd.getOptionValue("mbmpn"));
 		nvdimmMbPerNode = Long.valueOf(cmd.getOptionValue("mbnpn"));
-		memoryAM = Long.valueOf(cmd.getOptionValue("mbam"));
-		String defaultOutputPath = hdfsPrefix + "/output." + executableName + "." + String.valueOf(1900 + now.getYear()) + "_"
-				+ String.valueOf(now.getMonth()) + "_" + String.valueOf(now.getDay()) + "_"
-				+ String.valueOf(now.getHours()) + "_" + String.valueOf(now.getMinutes()) + "_"
-				+ String.valueOf(now.getSeconds()) + ".txt";
+		amMemoryMb = Long.valueOf(cmd.getOptionValue("mbam"));
+		Calendar calendar = Calendar.getInstance();
+		String defaultOutputPath = hdfsPrefix + "/output." + getExecutableName() + "." + String.valueOf(calendar.get(Calendar.YEAR)) + "_"
+				+ String.valueOf(calendar.get(Calendar.MONTH)) + "_" + String.valueOf(calendar.get(Calendar.DAY_OF_MONTH)) + "_"
+				+ String.valueOf(calendar.get(Calendar.HOUR_OF_DAY)) + "_" + String.valueOf(calendar.get(Calendar.MINUTE)) + "_"
+				+ String.valueOf(calendar.get(Calendar.SECOND)) + ".txt";
 		outputPath = getOptionValue(cmd, "o", defaultOutputPath);
 		executableArgs = getOptionValue(cmd, "args", "");
 
@@ -303,14 +294,9 @@ public class MyConf implements Serializable {
 		MyConf conf = new MyConf(test1);
 		conf = MyConf.deserialize(MyConf.serialize(conf));
 		System.out.println(conf.getNumNodes());
-		System.out.println(conf.getNumProcs());
 		System.out.println(conf.getNumProcsPerNode());
 		System.out.println(conf.getOutputPath());
 		System.out.println(serialize(conf).length());
-	}
-
-	public int getNumDeamons() {
-
 	}
 
 	public int getLauncherType() {
@@ -338,6 +324,7 @@ public class MyConf implements Serializable {
 	}
 
 	// path-related information
+	public String getAppName() { return "[MPI]" + getExecutableName(); }
 	public String getContainingJarName() { return extractNameFromPath(containingJarClientPath); }
 	public String getContainingJarClientPath() { return containingJarClientPath; }
 	public String getContainingJarStagingPath() { return fromNameToStagingPath(getContainingJarName()); }
@@ -347,8 +334,8 @@ public class MyConf implements Serializable {
 	public String getProxyName() { return extractNameFromPath(proxyClientPath); }
 	public String getProxyClientPath() { return proxyClientPath; }
 	public String getProxyStagingPath() { return fromNameToStagingPath(getProxyName()); }
-	public String getLauncherName() { return extractNameFromPath(proxyClientPath); }
-	public String getLauncherClientPath() { return proxyClientPath; }
+	public String getLauncherName() { return extractNameFromPath(launcherClientPath); }
+	public String getLauncherClientPath() { return launcherClientPath; }
 	public String getLauncherStagingPath() { return fromNameToStagingPath(getLauncherName()); }
 
 	private String fromNameToStagingPath(String name) {
@@ -363,10 +350,12 @@ public class MyConf implements Serializable {
 	}
 
 	// add entries to local resources table
+	//   0. jars
 	//   1. executable
 	//   2. launcher
 	//   3. proxy
 	void addLocalResources(Map<String, LocalResource> localResources) throws IOException {
+		addLocalResource(localResources, fileSystem, getContainingJarName(), getContainingJarStagingPath());
 		addLocalResource(localResources, fileSystem, getExecutableName(), getExecutableStagingPath());
 		addLocalResource(localResources, fileSystem, getProxyName(), getProxyStagingPath());
 		addLocalResource(localResources, fileSystem, getLauncherName(), getLauncherStagingPath());
@@ -420,25 +409,71 @@ public class MyConf implements Serializable {
 	public Map<String,String> createAMEnvironment() {
 		Map<String, String> appMasterEnv = new HashMap<>();
 		addAMClassPathToEnv(appMasterEnv);
-		appMasterEnv.put(MyConf.MY_CONF_SERIALIZED, MyConf.serialize(myConf));
+		appMasterEnv.put(MyConf.MY_CONF_SERIALIZED, MyConf.serialize(this));
 		return appMasterEnv;
 	}
 
-	// prepare launch command for AM
-	public String createAMCommand() {
+	/**
+	 * Prepare launch command for AM
+	 *
+	 * 1. Copy from container PWD to a well-known temp dir (due to MPI's requirement)
+	 * 2. Launch AM
+	 * @return
+	 */
+	public List<String> createAMCommand() {
 		ArrayList<String> javaOpts = new ArrayList<>();
 		javaOpts.add("-Xmx" + getAMJavaMemoryMb() + "m");
 		Path tmpDir = new Path(Environment.PWD.$$(), YarnConfiguration.DEFAULT_CONTAINER_TEMP_DIR);
 		javaOpts.add("-Djava.io.tmpdir=" + tmpDir);
-		javaOpts.add("-Dspark.yarn.app.container.log.dir=" + ApplicationConstants.LOG_DIR_EXPANSION_VAR);
 
+		ArrayList<String> commandList = new ArrayList<>();
+		commandList.addAll(Arrays.asList(String.format("cp %s %s ;", getExecutableName(), getTemporaryPath()).split(MyConf.SPLIT_SPACE)));
+		commandList.add(Environment.JAVA_HOME.$$() + "/bin/java");
+		commandList.add("-server");
+		for (String opt : javaOpts) {
+			commandList.add(opt);
+		}
+		commandList.add("ai.fma.mpi_yarn.ApplicationMaster");
+		commandList.add("1>");
+		commandList.add(ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
+		commandList.add("2>");
+		commandList.add(ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 
+		return commandList;
+	}
 
-		amContainer.setCommands(Collections
-				.singletonList("$JAVA_HOME/bin/java" + " -Xmx" + String.valueOf(myConf.getContainerMemoryMb()) + "M"
-						+ " ai.fma.mpi_yarn.ApplicationMaster" + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR
-						+ "/stdout" + " 2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr"));
+	public void setAMResource(Resource capability) {
+		if (getLauncherType() == LAUNCHER_TYPE_HYDRA) {
+			capability.setMemorySize(amMemoryMb);
+			capability.setVirtualCores(1);
+		} else if (getLauncherType() == LAUNCHER_TYPE_ORTE) {
+			capability.setMemorySize(amMemoryMb + memoryMbPerNode);
+			capability.setVirtualCores(vCoresPerNode);
+			capability.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, nvdimmMbPerNode);
+		} else {
+			assert(false);
+		}
+	}
 
-		// Copy required file
+	/**
+	 * Get the number of containers required as deamon
+	 */
+	public int getNumDeamonContainers() {
+		if (getLauncherType() == LAUNCHER_TYPE_HYDRA) {
+			return getNumNodes();
+		} else if (getLauncherType() == LAUNCHER_TYPE_ORTE) {
+			return getNumNodes() - 1;
+		} else {
+			assert(false);
+			return 0;
+		}
+	}
+
+	public String getHostfileName() {
+		return "__mpi_yarn_hostfile";
+	}
+
+	public String getTemporaryPath() {
+		return "/tmp";
 	}
 }

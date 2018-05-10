@@ -2,6 +2,7 @@ package ai.fma.mpi_yarn;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -24,6 +25,10 @@ public class Client {
 	FileSystem dfs;
 
 	public void run(String[] args) throws Exception {
+		myConf = new MyConf(args);
+		conf = myConf.getYarnConfiguration();
+		dfs = myConf.getFileSystem();
+
 	    // Create yarnClient
 		YarnClient yarnClient = YarnClient.createYarnClient();
 		yarnClient.init(conf);
@@ -32,30 +37,25 @@ public class Client {
 		// Create application via yarnClient
 		YarnClientApplication app = yarnClient.createApplication();
         GetNewApplicationResponse getNewApplicationResponse = app.getNewApplicationResponse();
-        myConf = new MyConf(args, getNewApplicationResponse);
-        conf = myConf.getYarnConfiguration();
-        dfs = myConf.getFileSystem();
 
         uploadFilesToStagingDirectory();
         Map<String, LocalResource> localResources = myConf.createAMLocalResources();
         Map<String, String> appMasterEnv = myConf.createAMEnvironment();
-        String amCommand = myConf.createAMCommand();
-        ContainerLaunchContext amContext = createAMContainerLaunchContext(getNewApplicationResponse);
-
-        Map<String, LocalResource> localResources = createAMLocalResources();
-
-		// Setup jar for ApplicationMaster
-
+		dumpLocalResources(localResources);
+        dumpEnvironment(appMasterEnv);
+        List<String> amCommand = myConf.createAMCommand();
+		ContainerLaunchContext amContainer = Records.newRecord(ContainerLaunchContext.class);
 		amContainer.setLocalResources(localResources);
-		
+		amContainer.setEnvironment(appMasterEnv);
+		amContainer.setCommands(amCommand);
+
 		// Set up resource type requirements for ApplicationMaster
 		Resource capability = Records.newRecord(Resource.class);
-		capability.setMemory(myConf.getAMResourceMemoryMb());
-		capability.setVirtualCores(1);
+		myConf.setAMResource(capability);
 
 		// Finally, set-up ApplicationSubmissionContext for the application
 		ApplicationSubmissionContext appContext = app.getApplicationSubmissionContext();
-		appContext.setApplicationName("mpi_yarn"); // application name
+		appContext.setApplicationName(myConf.getAppName()); // application name
 		appContext.setAMContainerSpec(amContainer);
 		appContext.setResource(capability);
 		appContext.setQueue(myConf.getQueueName()); // queue
@@ -66,6 +66,7 @@ public class Client {
 		System.out.println("output location = " + myConf.getOutputPath());
 		yarnClient.submitApplication(appContext);
 
+		// Monitoring the state of submission and the output of MPI program
 		ApplicationReport appReport = yarnClient.getApplicationReport(appId);
 		YarnApplicationState appState = appReport.getYarnApplicationState();
 		long outputOffset = 0;
@@ -74,23 +75,29 @@ public class Client {
 		while (appState != YarnApplicationState.FINISHED && appState != YarnApplicationState.KILLED
 				&& appState != YarnApplicationState.FAILED) {
 			Thread.sleep(100);
+			if (appState != YarnApplicationState.RUNNING) {
+				logger.info("Submission state = " + appState.name());
+			} else {
+				// Pool program output
+				Path outputPath = new Path(myConf.getOutputPath());
+				if (dfs.exists(outputPath)) {
+					FSDataInputStream inputStream = dfs.open(outputPath);
+					int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
+					if (readBytes != -1) {
+						String nextChunk = new String(buffer, 0, readBytes, StandardCharsets.UTF_8);
+						System.out.print(nextChunk);
+						outputOffset += readBytes;
+					}
+					inputStream.close();
+				}
+			}
 			appReport = yarnClient.getApplicationReport(appId);
 			appState = appReport.getYarnApplicationState();
-			Path outputPath = new Path(myConf.getOutputPath());
-			if (dfs.exists(outputPath)) {
-				FSDataInputStream inputStream = dfs.open(outputPath);
-				int readBytes = inputStream.read(outputOffset, buffer, 0, bufferSize);
-				if (readBytes != -1) {
-					String nextChunk = new String(buffer, 0, readBytes, StandardCharsets.UTF_8);
-					System.out.print(nextChunk);
-					outputOffset += readBytes;
-				}
-				inputStream.close();
-			}
 		}
 
 		// use sleep because we have to wait for AM's write to HDFS visible
 		Thread.sleep(3000);
+		// Drain program output
 		Path outputPath = new Path(myConf.getOutputPath());
 		if (dfs.exists(outputPath)) {
 			while (true) {
@@ -111,7 +118,23 @@ public class Client {
 				"Application " + appId + " finished with" + " state " + appState + " at " + appReport.getFinishTime());
 	}
 
-    // upload required files into staging directory
+	private void dumpLocalResources(Map<String, LocalResource> localResources) {
+		logger.info("LocalResources for appMaster");
+		for (String name : localResources.keySet()) {
+			LocalResource val = localResources.get(name);
+			logger.info(name + " = " + val.getResource());
+		}
+	}
+
+	private void dumpEnvironment(Map<String, String> appMasterEnv) {
+		logger.info("Environment for appMaster");
+		for (String key : appMasterEnv.keySet()) {
+			String val = appMasterEnv.get(key);
+			logger.info(key + " = " + val);
+		}
+	}
+
+	// upload required files into staging directory
     //   1. AM Jar
     //   2. Executable
     //   3. Proxy
@@ -125,7 +148,7 @@ public class Client {
     }
 
     private void uploadToHDFS(String clientPath, String hdfsPath) throws IOException {
-	    logger.debug(String.format("Upload client file (%s) to HDFS (%s)", clientPath, hdfsPath));
+	    logger.info(String.format("Upload client file (%s) to HDFS (%s)", clientPath, hdfsPath));
 	    dfs.copyFromLocalFile(false, true, new Path(clientPath), new Path(hdfsPath));
     }
 

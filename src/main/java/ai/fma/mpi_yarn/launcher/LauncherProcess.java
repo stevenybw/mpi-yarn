@@ -14,5 +14,5 @@ public abstract class LauncherProcess {
     public abstract InputStream getErrorStream();
 
     // Get the mapping from hostname to deamon command
-    public abstract Map<String,String> getDeamonHostCommand(MyConf myConf);
+    public abstract Map<String,String[]> getDeamonHostCommand(MyConf myConf);
 }

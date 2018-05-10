@@ -57,13 +57,13 @@ public class ApplicationMaster {
 	}
 
 	public static void main(String[] args) throws Exception {
-		logger.debug("Application Master Start");
+		logger.info("Application Master Start");
 
 		ApplicationMaster appMaster = new ApplicationMaster();
 
 		MyConf myConf = MyConf.deserialize(System.getenv(MyConf.MY_CONF_SERIALIZED));
 		FileSystem dfs = myConf.getFileSystem();
-		logger.debug("  output path = " + myConf.getOutputPath());
+		logger.info("  output path = " + myConf.getOutputPath());
 		FSDataOutputStream outputStream = dfs.create(new Path(myConf.getOutputPath()));
 
 		AMRMClient<ContainerRequest> rmClient = AMRMClient.createAMRMClient();
@@ -76,7 +76,7 @@ public class ApplicationMaster {
 
 		// Register with ResourceManager
 		rmClient.registerApplicationMaster("", 0, "");
-		logger.debug("Registered Application Master");
+		logger.info("Registered Application Master");
 
 		ArrayList<Container> containers = new ArrayList<Container>();
 		HashMap<String, Container> deamonHostContainer = new HashMap<String, Container>();
@@ -88,16 +88,16 @@ public class ApplicationMaster {
 		if (myConf.getLauncherType() == MyConf.LAUNCHER_TYPE_ORTE) {
 			exceptHosts.add(appMaster.hostname);
 		}
-		appMaster.acquireContainersDistinctHost(rmClient, myConf.getNumDeamons(), deamonResource, priority, exceptHosts, deamonHostContainer);
+		appMaster.acquireContainersDistinctHost(rmClient, myConf.getNumDeamonContainers(), deamonResource, priority, exceptHosts, deamonHostContainer);
 
 		int num_nodes = myConf.getNumNodes();
 		int ppn = myConf.getNumProcsPerNode();
 
-		logger.debug("Requesting resources");
-		logger.debug("amHostName = " + appMaster.hostname);
-		logger.debug("num_nodes = " + num_nodes);
-		logger.debug("num_deamons = " + myConf.getNumDeamons());
-		logger.debug("nprocs_per_node = " + ppn);
+		logger.info("Requesting resources");
+		logger.info("amHostName = " + appMaster.hostname);
+		logger.info("num_nodes = " + num_nodes);
+		logger.info("num_deamons = " + myConf.getNumDeamonContainers());
+		logger.info("nprocs_per_node = " + ppn);
 
 		clientPrintln(outputStream, "acquired container list: [" + String.join(",", deamonHostContainer.keySet()) + "]");
 
@@ -129,20 +129,24 @@ public class ApplicationMaster {
 		LauncherProcess launcher_process;
 		if (myConf.getLauncherType() == MyConf.LAUNCHER_TYPE_HYDRA) {
 			throw new NotImplementedException("Not implemented");
-			// launcher_process = new HydraLauncherProcess(myConf, deamonHostContainer.keySet(), ppn);
+			// launcher_process = new HydraLauncherProcess(myConf, deamonHostContainer.keySet());
 		} else if (myConf.getLauncherType() == MyConf.LAUNCHER_TYPE_ORTE) {
-			launcher_process = new OrteLauncherProcess(myConf, deamonHostContainer.keySet(), ppn);
+			Set<String> deamons = deamonHostContainer.keySet();
+			Set<String> hosts = new HashSet<>(deamons);
+			hosts.add(appMaster.hostname);
+			launcher_process = new OrteLauncherProcess(myConf, hosts, deamonHostContainer.keySet());
 		} else {
 			throw new IllegalArgumentException("Unknown launcher type");
 		}
 
-		Map<String, String> deamonHostCommand = launcher_process.getDeamonHostCommand(myConf);
+		Map<String, String[]> deamonHostCommand = launcher_process.getDeamonHostCommand(myConf);
 
 		// submit the deamons
-		for(String host : deamonHostContainer.keySet()) {
+		for (String host : deamonHostContainer.keySet()) {
 			Container container = deamonHostContainer.get(host);
-			String deamon_commands = deamonHostCommand.get(host);
-			submitToContainer(nmClient, deamon_commands, localResources, containerEnv, container);
+			String[] deamon_commands = deamonHostCommand.get(host);
+			assert (deamon_commands != null);
+			submitToContainer(myConf, nmClient, deamon_commands, localResources, containerEnv, container);
 		}
 
 		// polling the stdout of launcher process into specified output stream
@@ -154,7 +158,7 @@ public class ApplicationMaster {
 
 	// wait for the completion of launcher process and write its stdout, stderr into specified outputStream
 	private void waitForCompletion(AMRMClient<ContainerRequest> rmClient, int numContainers, LauncherProcess launcher_process, FSDataOutputStream outputStream) throws IOException, YarnException, InterruptedException {
-		logger.debug("Waiting for completion of the launcher and all the containers");
+		logger.info("Waiting for completion of the launcher and all the containers");
 		InputStream mpirunIstream = launcher_process.getInputStream();
 		InputStream mpirunEstream = launcher_process.getErrorStream();
 		// Scanner mpirunScanner = new Scanner(mpirunIstream);
@@ -173,7 +177,7 @@ public class ApplicationMaster {
 					clientPrintln(outputStream, "Completed container with non-zero exit code " + status.getContainerId()
 							+ " with exit code " + status.getExitStatus());
 				} else {
-					logger.debug("Completed container " + status.getContainerId() + " with exit code "
+					logger.info("Completed container " + status.getContainerId() + " with exit code "
 							+ status.getExitStatus());
 				}
 			}
@@ -197,7 +201,7 @@ public class ApplicationMaster {
 			}
 			Thread.sleep(MyConf.SLEEP_INTERVAL_MS);
 		}
-		logger.debug("Draining the stdout of launcher");
+		logger.info("Draining the stdout of launcher");
 		{
 			int bytes = 0;
 			while (!iStreamClosed) {
@@ -210,7 +214,7 @@ public class ApplicationMaster {
 				}
 			}
 		}
-		logger.debug("Draining the stderr of launcher");
+		logger.info("Draining the stderr of launcher");
 		{
 			int bytes = 0;
 			while (!eStreamClosed) {
@@ -226,16 +230,23 @@ public class ApplicationMaster {
 	}
 
 	// submit container_cmd to the container
-	private static void submitToContainer(NMClient nmClient, String container_cmd, Map<String, LocalResource> localResources, Map<String, String> containerEnv, Container container) throws IOException, YarnException {
-		logger.debug(String.format("Launching container %s (%s)", container.getId(), container_cmd));
+	private static void submitToContainer(MyConf myConf, NMClient nmClient, String[] container_cmd, Map<String, LocalResource> localResources, Map<String, String> containerEnv, Container container) throws IOException, YarnException {
 		ContainerLaunchContext ctx = Records.newRecord(ContainerLaunchContext.class);
 		ctx.setLocalResources(localResources);
-		ArrayList<String> commands = new ArrayList<String>();
-		commands.add(container_cmd + " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout" + " 2>"
-				+ ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
-		// commands.add("echo ContainerFinished!");
+		ArrayList<String> commands = new ArrayList<>();
+		commands.addAll(Arrays.asList(String.format("cp %s %s ;", myConf.getExecutableName(), myConf.getTemporaryPath()).split(MyConf.SPLIT_SPACE)));
+		commands.addAll(Arrays.asList(container_cmd));
+		commands.add("1>");
+		commands.add(ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
+		commands.add("2>");
+		commands.add(ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 		ctx.setCommands(commands);
 		ctx.setEnvironment(containerEnv);
+		logger.info(String.format("Launching container %s with command %s", container.getId(), String.join(" ", commands)));
+		for (String name : containerEnv.keySet()) {
+			String value = containerEnv.get(name);
+			logger.info("  " + name + " = " + value);
+		}
 		nmClient.startContainer(container, ctx);
 	}
 
@@ -255,11 +266,11 @@ public class ApplicationMaster {
 					String host = nodeId.getHost();
 					if (!deamonHostContainer.containsKey(host) && !exceptHosts.contains(host)) {
 						deamonHostContainer.put(host, container);
-						logger.debug("acquired a container from host " + host);
+						logger.info("acquired a container from host " + host);
 						break;
 					} else {
 						rmClient.releaseAssignedContainer(container.getId());
-						logger.debug("ignored a duplicate container from host " + host);
+						logger.info("ignored a duplicate container from host " + host);
 					}
 				}
 			}
@@ -272,10 +283,10 @@ public class ApplicationMaster {
 		int vcores_per_node = myConf.getVCoresPerNode();
 		long mb_memory_per_node = myConf.getMemoryMbPerNode();
 		long mb_nvdimm_per_node = myConf.getNvdimmMbPerNode();
-		logger.debug("Deamon Container Resource");
-		logger.debug("  vcores_per_node = " + vcores_per_node);
-		logger.debug("  mb_memory_per_node = " + mb_memory_per_node);
-		logger.debug("  mb_nvdimm_per_node = " + mb_nvdimm_per_node);
+		logger.info("Deamon Container Resource");
+		logger.info("  vcores_per_node = " + vcores_per_node);
+		logger.info("  mb_memory_per_node = " + mb_memory_per_node);
+		logger.info("  mb_nvdimm_per_node = " + mb_nvdimm_per_node);
 		resource.setVirtualCores(vcores_per_node);
 		resource.setMemorySize(mb_memory_per_node);
 		resource.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, mb_nvdimm_per_node);
@@ -300,9 +311,9 @@ public class ApplicationMaster {
 			ldLibraryPath = ".:" + ldLibraryPath;
 		}
 		containerEnv.put("LD_LIBRARY_PATH", ldLibraryPath);
-		logger.debug("[Environment Variable for Launcher and Deamons]");
+		logger.info("[Environment Variable for Launcher and Deamons]");
 		for (String key : containerEnv.keySet()) {
-			logger.debug(key + " = " + containerEnv.get(key));
+			logger.info(key + " = " + containerEnv.get(key));
 		}
 	}
 

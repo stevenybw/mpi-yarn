@@ -45,6 +45,7 @@
     <plugins>
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>
+        <!--
         <executions>
           <execution>
             <phase>package</phase>
@@ -53,6 +54,7 @@
             </goals>
           </execution>
         </executions>
+        -->
         <configuration>
           <archive>
             <manifest>
