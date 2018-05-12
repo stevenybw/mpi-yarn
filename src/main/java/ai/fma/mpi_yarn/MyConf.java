@@ -449,7 +449,9 @@ public class MyConf implements Serializable {
 		} else if (getLauncherType() == LAUNCHER_TYPE_ORTE) {
 			capability.setMemorySize(amMemoryMb + memoryMbPerNode);
 			capability.setVirtualCores(vCoresPerNode);
-			capability.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, nvdimmMbPerNode);
+			if (nvdimmMbPerNode > 0) {
+				capability.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, nvdimmMbPerNode);
+			}
 		} else {
 			assert(false);
 		}

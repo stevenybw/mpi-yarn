@@ -289,7 +289,9 @@ public class ApplicationMaster {
 		logger.info("  mb_nvdimm_per_node = " + mb_nvdimm_per_node);
 		resource.setVirtualCores(vcores_per_node);
 		resource.setMemorySize(mb_memory_per_node);
-		resource.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, mb_nvdimm_per_node);
+		if (mb_nvdimm_per_node > 0) {
+			resource.setResourceValue(MyConf.NVDIMM_RESOURCE_NAME, mb_nvdimm_per_node);
+		}
 		return resource;
 	}
 
